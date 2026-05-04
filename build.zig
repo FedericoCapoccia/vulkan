@@ -12,6 +12,8 @@ pub fn build(b: *std.Build) void {
 
     const vulkan_zig = b.addModule("vulkan-zig", .{
         .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
     const zglfw = b.dependency("zglfw", .{
