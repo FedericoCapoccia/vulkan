@@ -3,7 +3,20 @@
     .version = "0.0.0",
     .fingerprint = 0xbe155a03be9de572,
     .minimum_zig_version = "0.16.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#5234ae68d1ac143b3ebd1a6e2e40aaa0ef7693c7",
+            .hash = "vulkan-0.0.0-r7Ytx7t9AwBjKG7tnhReEVo0P2fvstTc8G_0qF8iog_V",
+        },
+        .vulkan_headers = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers#8864cdc896bbc2a9b6eb36b3218fc9ef57908d77",
+            .hash = "N-V-__8AAPnEbQK6L3hGtJefy0xZjeg7KOxIEj8_obZC2_lF",
+        },
+        .zglfw = .{
+            .url = "git+https://github.com/zig-gamedev/zglfw#51003c105d23db378bb59ce415a387b22f1b0892",
+            .hash = "zglfw-0.10.0-dev-zgVDNIy4IQDJNRy4jrP1As-SZxfJpuWhU1iJ-wBab_VD",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
