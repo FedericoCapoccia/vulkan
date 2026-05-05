@@ -47,8 +47,8 @@ pub const Instance = struct {
         };
     }
 
-    pub fn destroy(self: *const Instance) void {
-        self.wrapper.destroyInstance(self.handle, null);
+    pub fn proxy(self: *const Instance) vk.InstanceProxy {
+        return vk.InstanceProxy.init(self.handle, &self.wrapper);
     }
 
     pub fn createDebugUtilsMessenger(self: *const Instance) !vk.DebugUtilsMessengerEXT {
@@ -70,7 +70,7 @@ pub const Instance = struct {
             .pfn_user_callback = debugCallback,
         };
 
-        return self.wrapper.createDebugUtilsMessengerEXT(self.handle, &cinfo, null);
+        return self.proxy().createDebugUtilsMessengerEXT(&cinfo, null);
     }
 };
 
