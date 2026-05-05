@@ -50,6 +50,28 @@ pub const Instance = struct {
     pub fn destroy(self: *const Instance) void {
         self.wrapper.destroyInstance(self.handle, null);
     }
+
+    pub fn createDebugUtilsMessenger(self: *const Instance) !vk.DebugUtilsMessengerEXT {
+        const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
+            .error_bit_ext = true,
+            .warning_bit_ext = true,
+        };
+
+        const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
+            .device_address_binding_bit_ext = true,
+            .general_bit_ext = true,
+            .performance_bit_ext = true,
+            .validation_bit_ext = true,
+        };
+
+        const cinfo = vk.DebugUtilsMessengerCreateInfoEXT{
+            .message_severity = severity,
+            .message_type = mtype,
+            .pfn_user_callback = debugCallback,
+        };
+
+        return self.wrapper.createDebugUtilsMessengerEXT(self.handle, &cinfo, null);
+    }
 };
 
 fn checkInstanceExtensions(required_ext: []const [*:0]const u8, available_ext: []const vk.ExtensionProperties) !void {
@@ -123,4 +145,37 @@ fn checkInstanceLayers(required_layers: []const [*:0]const u8, available_layers:
             return error.MissingRequiredInstanceLayer;
         }
     }
+}
+
+fn debugCallback(
+    message_severity: vk.DebugUtilsMessageSeverityFlagsEXT,
+    message_types: vk.DebugUtilsMessageTypeFlagsEXT,
+    p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
+    p_user_data: ?*anyopaque,
+) callconv(vk.vulkan_call_conv) vk.Bool32 {
+    _ = p_user_data;
+
+    const callback_data = p_callback_data orelse return .false;
+    const message = callback_data.p_message orelse "<no message>";
+
+    const message_type = if (message_types.general_bit_ext)
+        "GENERAL"
+    else if (message_types.validation_bit_ext)
+        "VALIDATION"
+    else if (message_types.performance_bit_ext)
+        "PERFORMANCE"
+    else if (message_types.device_address_binding_bit_ext)
+        "DEVICE ADDRESS BINDING"
+    else
+        "UNKNOWN";
+
+    switch (message_severity.toInt()) {
+        (vk.DebugUtilsMessageSeverityFlagsEXT{ .error_bit_ext = true }).toInt() => std.log.err("Vulkan [{s}]: {s}", .{ message_type, message }),
+        (vk.DebugUtilsMessageSeverityFlagsEXT{ .warning_bit_ext = true }).toInt() => std.log.warn("Vulkan [{s}]: {s}", .{ message_type, message }),
+        (vk.DebugUtilsMessageSeverityFlagsEXT{ .info_bit_ext = true }).toInt() => std.log.info("Vulkan [{s}]: {s}", .{ message_type, message }),
+        (vk.DebugUtilsMessageSeverityFlagsEXT{ .verbose_bit_ext = true }).toInt() => std.log.debug("Vulkan [{s}]: {s}", .{ message_type, message }),
+        else => std.log.debug("Vulkan {s}: {s}", .{ message_type, message }),
+    }
+
+    return .false;
 }
