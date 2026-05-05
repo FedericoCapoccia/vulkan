@@ -5,6 +5,7 @@ const vk = @import("vulkan");
 
 const PhysicalDevice = @import("vk/physical_device.zig").PhysicalDevice;
 const Instance = @import("vk/instance.zig").Instance;
+const Device = @import("vk/device.zig").Device;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();
@@ -41,6 +42,7 @@ pub fn main(init: std.process.Init) !void {
 
     const required_device_ext = [_][*:0]const u8{
         "VK_KHR_swapchain",
+        "VK_EXT_extended_dynamic_state",
     };
 
     const physical_device = try PhysicalDevice.select(
@@ -63,6 +65,10 @@ pub fn main(init: std.process.Init) !void {
         std.log.info("\tGraphics queue family: {}", .{physical_device.graphics_queue_family_index});
         std.log.info("\tPresent queue family: {}", .{physical_device.present_queue_family_index});
     }
+
+    const vk_device = try Device.create(&instance, physical_device, required_device_ext[0..], init.gpa);
+    const device = vk_device.proxy();
+    defer device.destroyDevice(null);
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
