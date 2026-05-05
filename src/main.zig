@@ -50,9 +50,10 @@ pub fn main(init: std.process.Init) !void {
         .pp_enabled_extension_names = glfw_ext.ptr,
     };
 
-    const instance = try vkb.createInstance(&create_info, null);
-    const vki = vk.InstanceWrapper.load(instance, vkb.dispatch.vkGetInstanceProcAddr.?);
-    defer vki.destroyInstance(instance, null);
+    const instance_hnd = try vkb.createInstance(&create_info, null);
+    const vki = vk.InstanceWrapper.load(instance_hnd, vkb.dispatch.vkGetInstanceProcAddr.?);
+    const instance = vk.InstanceProxy.init(instance_hnd, &vki);
+    defer instance.destroyInstance(null);
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
