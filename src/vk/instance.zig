@@ -6,6 +6,7 @@ const vk = @import("vulkan");
 pub const Instance = struct {
     handle: vk.Instance,
     wrapper: vk.InstanceWrapper,
+    msg: ?vk.DebugUtilsMessengerEXT,
 
     pub fn create(
         required_layers: []const [*:0]const u8,
@@ -30,47 +31,37 @@ pub const Instance = struct {
             .api_version = vk.API_VERSION_1_4.toU32(),
         };
 
+        const msgcinfo = messengerCreateInfo();
         const create_info = vk.InstanceCreateInfo{
             .p_application_info = &app_info,
             .enabled_extension_count = @intCast(required_ext.len),
             .pp_enabled_extension_names = required_ext.ptr,
             .enabled_layer_count = @intCast(required_layers.len),
             .pp_enabled_layer_names = required_layers.ptr,
+            .p_next = &msgcinfo,
         };
 
         const instance_handle = try base.createInstance(&create_info, null);
         const instance_wrapper = vk.InstanceWrapper.load(instance_handle, base.dispatch.vkGetInstanceProcAddr.?);
+        const msg = try instance_wrapper.createDebugUtilsMessengerEXT(instance_handle, &msgcinfo, null);
 
         return .{
             .handle = instance_handle,
             .wrapper = instance_wrapper,
+            .msg = msg,
         };
+    }
+
+    pub fn destroy(self: *const Instance) void {
+        const instance = self.proxy();
+        if (self.msg) |msg| {
+            instance.destroyDebugUtilsMessengerEXT(msg, null);
+        }
+        instance.destroyInstance(null);
     }
 
     pub fn proxy(self: *const Instance) vk.InstanceProxy {
         return vk.InstanceProxy.init(self.handle, &self.wrapper);
-    }
-
-    pub fn createDebugUtilsMessenger(self: *const Instance) !vk.DebugUtilsMessengerEXT {
-        const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
-            .error_bit_ext = true,
-            .warning_bit_ext = true,
-        };
-
-        const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
-            .device_address_binding_bit_ext = true,
-            .general_bit_ext = true,
-            .performance_bit_ext = true,
-            .validation_bit_ext = true,
-        };
-
-        const cinfo = vk.DebugUtilsMessengerCreateInfoEXT{
-            .message_severity = severity,
-            .message_type = mtype,
-            .pfn_user_callback = debugCallback,
-        };
-
-        return self.proxy().createDebugUtilsMessengerEXT(&cinfo, null);
     }
 };
 
@@ -145,6 +136,26 @@ fn checkInstanceLayers(required_layers: []const [*:0]const u8, available_layers:
             return error.MissingRequiredInstanceLayer;
         }
     }
+}
+
+fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
+    const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
+        .error_bit_ext = true,
+        .warning_bit_ext = true,
+    };
+
+    const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
+        .device_address_binding_bit_ext = true,
+        .general_bit_ext = true,
+        .performance_bit_ext = true,
+        .validation_bit_ext = true,
+    };
+
+    return vk.DebugUtilsMessengerCreateInfoEXT{
+        .message_severity = severity,
+        .message_type = mtype,
+        .pfn_user_callback = debugCallback,
+    };
 }
 
 fn debugCallback(

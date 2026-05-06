@@ -30,11 +30,8 @@ pub fn main(init: std.process.Init) !void {
     defer init.gpa.free(required_ext);
 
     const vk_instance = try Instance.create(required_layers[0..], required_ext, init.gpa);
+    defer vk_instance.destroy();
     const instance = vk_instance.proxy();
-    defer instance.destroyInstance(null);
-
-    const msg = try vk_instance.createDebugUtilsMessenger();
-    defer instance.destroyDebugUtilsMessengerEXT(msg, null);
 
     var surface: vk.SurfaceKHR = undefined;
     try glfw.createWindowSurface(vk_instance.handle, window, null, &surface);
@@ -70,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
     const device = vk_device.proxy();
     defer device.destroyDevice(null);
 
-    while (!window.shouldClose()) {
-        glfw.pollEvents();
-    }
+    // while (!window.shouldClose()) {
+    //     glfw.pollEvents();
+    // }
 }
