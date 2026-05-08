@@ -39,7 +39,7 @@ pub const PhysicalDevice = struct {
             else
                 null;
 
-            if (available[0] == device and selected != null) {
+            if (first_device == null and selected != null) {
                 first_device = selected;
             }
 

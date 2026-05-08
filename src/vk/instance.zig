@@ -43,6 +43,7 @@ pub const Instance = struct {
 
         const instance_handle = try base.createInstance(&create_info, null);
         const instance_wrapper = vk.InstanceWrapper.load(instance_handle, base.dispatch.vkGetInstanceProcAddr.?);
+        errdefer instance_wrapper.destroyInstance(instance_handle, null);
         const msg = try instance_wrapper.createDebugUtilsMessengerEXT(instance_handle, &msgcinfo, null);
 
         return .{

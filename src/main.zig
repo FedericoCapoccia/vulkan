@@ -6,6 +6,7 @@ const vk = @import("vulkan");
 const PhysicalDevice = @import("vk/physical_device.zig").PhysicalDevice;
 const Instance = @import("vk/instance.zig").Instance;
 const Device = @import("vk/device.zig").Device;
+const Swapchain = @import("vk/swapchain.zig").Swapchain;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();
@@ -66,6 +67,16 @@ pub fn main(init: std.process.Init) !void {
     const vk_device = try Device.create(&instance, physical_device, required_device_ext[0..], init.gpa);
     const device = vk_device.proxy();
     defer device.destroyDevice(null);
+
+    const swapchain = try Swapchain.create(
+        &instance,
+        &physical_device,
+        surface,
+        &device,
+        window,
+        init.gpa,
+    );
+    defer swapchain.destroy(device);
 
     // while (!window.shouldClose()) {
     //     glfw.pollEvents();
