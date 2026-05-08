@@ -99,8 +99,26 @@ pub fn main(init: std.process.Init) !void {
 
     const present_complete_sem = try device.createSemaphore(&.{}, null);
     defer device.destroySemaphore(present_complete_sem, null);
-    const render_finished_sem = try device.createSemaphore(&.{}, null);
-    defer device.destroySemaphore(render_finished_sem, null);
+
+    const render_finished_sems = try init.gpa.alloc(vk.Semaphore, swapchain.images.len);
+    errdefer init.gpa.free(render_finished_sems);
+    var render_finished_sem_count: usize = 0;
+    errdefer {
+        for (render_finished_sems[0..render_finished_sem_count]) |sem| {
+            device.destroySemaphore(sem, null);
+        }
+    }
+    for (render_finished_sems) |*sem| {
+        sem.* = try device.createSemaphore(&.{}, null);
+        render_finished_sem_count += 1;
+    }
+    defer init.gpa.free(render_finished_sems);
+    defer {
+        for (render_finished_sems) |sem| {
+            device.destroySemaphore(sem, null);
+        }
+    }
+
     const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
     const draw_fence = try device.createFence(&fence_info, null);
     defer device.destroyFence(draw_fence, null);
@@ -122,6 +140,7 @@ pub fn main(init: std.process.Init) !void {
     try device.allocateCommandBuffers(&alloc_cinfo, vk_cmds[0..].ptr);
     const cmd = vk.CommandBufferProxy.init(vk_cmds[0], &vk_device.wrapper);
     const present_queue = vk.QueueProxy.init(vk_device.present_queue, &vk_device.wrapper);
+    defer device.deviceWaitIdle() catch {};
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
@@ -129,6 +148,7 @@ pub fn main(init: std.process.Init) !void {
         const fence_result = try device.waitForFences(draw_fences[0..], .true, std.math.maxInt(u64));
         if (fence_result != .success) return error.WaitForDrawFenceFailed;
         try device.resetFences(draw_fences[0..]);
+        try cmd.resetCommandBuffer(.{});
 
         const res = try device.acquireNextImageKHR(
             swapchain.handle,
@@ -138,6 +158,7 @@ pub fn main(init: std.process.Init) !void {
         );
 
         try recordCmd(cmd, swapchain, pipeline, res.image_index);
+        const render_finished_sem = render_finished_sems[res.image_index];
 
         const wait_dst_stage_mask = [_]vk.PipelineStageFlags{
             .{ .color_attachment_output_bit = true },
@@ -174,7 +195,9 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn recordCmd(cmd: vk.CommandBufferProxy, swapchain: Swapchain, pipeline: GraphicPipeline, img_idx: u32) !void {
-    const begin_info = vk.CommandBufferBeginInfo{};
+    const begin_info = vk.CommandBufferBeginInfo{
+        .flags = .{ .one_time_submit_bit = true },
+    };
     try cmd.beginCommandBuffer(&begin_info);
     transitionImageLayout(
         cmd,
@@ -188,7 +211,7 @@ fn recordCmd(cmd: vk.CommandBufferProxy, swapchain: Swapchain, pipeline: Graphic
         .{ .color_attachment_output_bit = true },
     );
 
-    const clear_color: vk.ClearValue = vk.ClearValue{ .color = .{ .int_32 = .{ 0, 0, 0, 1 } } };
+    const clear_color: vk.ClearValue = vk.ClearValue{ .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 0.0 } } };
 
     const attachment_info = vk.RenderingAttachmentInfo{
         .image_view = swapchain.views[img_idx],

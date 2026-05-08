@@ -42,6 +42,7 @@ pub const Device = struct {
         var vulkan_13_features = vk.PhysicalDeviceVulkan13Features{
             .p_next = &extended_dynamic_state_features,
             .dynamic_rendering = .true,
+            .synchronization_2 = .true,
         };
         var vulkan_11_features = vk.PhysicalDeviceVulkan11Features{
             .p_next = &vulkan_13_features,
