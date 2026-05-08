@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const shaders_step = b.step("shaders", "Compile Slang shaders");
 
     const registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
     const vk_gen = b.dependency("vulkan", .{}).artifact("vulkan-zig-generator");
@@ -60,8 +61,40 @@ pub fn build(b: *std.Build) void {
 
     const check = b.step("check", "Check if exe compiles");
     check.dependOn(&exe_c.step);
+    addShaderCompileSteps(b, shaders_step);
 
     if (b.args) |args| {
         run_cmd.addArgs(args);
+    }
+}
+
+fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
+    const dir = std.Io.Dir.cwd().openDir(b.graph.io, "resources/shaders", .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => @panic("failed to open resources/shaders"),
+    };
+    defer dir.close(b.graph.io);
+
+    var iterator = dir.iterate();
+    while (iterator.next(b.graph.io) catch @panic("failed to iterate resources/shaders")) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".slang")) continue;
+
+        const output_name = b.fmt("{s}.spv", .{entry.name[0 .. entry.name.len - ".slang".len]});
+
+        const cmd = b.addSystemCommand(&.{"slangc"});
+        cmd.addFileArg(b.path(b.pathJoin(&.{ "resources/shaders", entry.name })));
+        cmd.addArgs(&.{
+            "-target",
+            "spirv",
+            "-o",
+        });
+
+        const output = cmd.addOutputFileArg(output_name);
+        const install = b.addInstallFileWithDir(
+            output,
+            .prefix,
+            b.pathJoin(&.{ "resources/shaders", output_name }),
+        );
+        shaders_step.dependOn(&install.step);
     }
 }
