@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
-    run_step.dependOn(shaders_step);
+    run_cmd.step.dependOn(shaders_step);
     run_cmd.step.dependOn(b.getInstallStep());
 
     const check = b.step("check", "Check if exe compiles");
@@ -101,7 +101,7 @@ fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
         const output = cmd.addOutputFileArg(output_name);
         const install = b.addInstallFileWithDir(
             output,
-            .prefix,
+            .bin,
             b.pathJoin(&.{ "resources/shaders", output_name }),
         );
         shaders_step.dependOn(&install.step);

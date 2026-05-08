@@ -43,8 +43,12 @@ pub const Device = struct {
             .p_next = &extended_dynamic_state_features,
             .dynamic_rendering = .true,
         };
-        var features = vk.PhysicalDeviceFeatures2{
+        var vulkan_11_features = vk.PhysicalDeviceVulkan11Features{
             .p_next = &vulkan_13_features,
+            .shader_draw_parameters = .true,
+        };
+        var features = vk.PhysicalDeviceFeatures2{
+            .p_next = &vulkan_11_features,
             .features = .{},
         };
 

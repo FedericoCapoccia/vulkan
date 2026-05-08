@@ -68,6 +68,12 @@ pub fn main(init: std.process.Init) !void {
     const device = vk_device.proxy();
     defer device.destroyDevice(null);
 
+    const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
+    defer init.gpa.free(exe_dir);
+
+    const shader_dir = try std.fs.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
+    defer init.gpa.free(shader_dir);
+
     const swapchain = try Swapchain.create(
         &instance,
         &physical_device,
@@ -78,7 +84,46 @@ pub fn main(init: std.process.Init) !void {
     );
     defer swapchain.destroy(device);
 
+    const triangle_shader = try createShaderModule(
+        init.io,
+        init.gpa,
+        &device,
+        shader_dir,
+        "triangle.spv",
+    );
+    defer device.destroyShaderModule(triangle_shader, null);
+
     // while (!window.shouldClose()) {
     //     glfw.pollEvents();
     // }
+}
+
+fn createShaderModule(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    device: *const vk.DeviceProxy,
+    shader_dir: []const u8,
+    filename: []const u8,
+) !vk.ShaderModule {
+    const path = try std.fs.path.join(allocator, &.{ shader_dir, filename });
+    defer allocator.free(path);
+
+    const code = try std.Io.Dir.cwd().readFileAllocOptions(
+        io,
+        path,
+        allocator,
+        .limited(1024 * 1024),
+        .of(u32),
+        null,
+    );
+    defer allocator.free(code);
+
+    if (code.len % @sizeOf(u32) != 0) return error.InvalidSpirVSize;
+
+    const cinfo = vk.ShaderModuleCreateInfo{
+        .code_size = code.len,
+        .p_code = std.mem.bytesAsSlice(u32, code).ptr,
+    };
+
+    return device.createShaderModule(&cinfo, null);
 }
