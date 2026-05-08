@@ -86,6 +86,14 @@ fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
         cmd.addArgs(&.{
             "-target",
             "spirv",
+            "-profile",
+            "spirv_1_4",
+            "-emit-spirv-directly",
+            "-fvk-use-entrypoint-name",
+            "-entry",
+            "vertMain",
+            "-entry",
+            "fragMain",
             "-o",
         });
 
