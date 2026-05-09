@@ -26,10 +26,18 @@ pub fn main(init: std.process.Init) !void {
         .features = .{},
     };
 
-    const vk_context = try vkr.VulkanContext.init(window, true, &device_requirements, init.gpa);
+    const vk_context = try vkr.VulkanContext.init(.{
+        .window = window,
+        .log_messages = true,
+        .device_requirements = &device_requirements,
+        .allocator = init.gpa,
+    });
     defer vk_context.destroy();
 
-    const renderer = try vkr.Renderer.init(&vk_context, &device_requirements);
+    const renderer = try vkr.Renderer.init(.{
+        .ctx = &vk_context,
+        .requirements = &device_requirements,
+    });
     defer renderer.destroy();
 
     const instance = vk_context.instance();

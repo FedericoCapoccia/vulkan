@@ -13,38 +13,42 @@ pub const VulkanContext = struct {
     pdev: vk.PhysicalDevice,
     queue_families: vkh.QueueFamilies,
 
-    pub fn init(
+    pub const InitInfo = struct {
         window: *glfw.Window,
         log_messages: bool,
         device_requirements: *const vkh.DeviceRequirements,
         allocator: std.mem.Allocator,
-    ) !VulkanContext {
+    };
+
+    pub fn init(info: InitInfo) !VulkanContext {
         const base = vk.BaseWrapper.load(glfw.getInstanceProcAddress);
 
         var ins_extensions: std.ArrayList([*:0]const u8) = .empty;
-        defer ins_extensions.deinit(allocator);
+        defer ins_extensions.deinit(info.allocator);
 
-        try ins_extensions.appendSlice(allocator, try glfw.getRequiredInstanceExtensions());
-        if (log_messages) {
-            try ins_extensions.append(allocator, vk.extensions.ext_debug_utils.name);
+        try ins_extensions.appendSlice(info.allocator, try glfw.getRequiredInstanceExtensions());
+        if (info.log_messages) {
+            try ins_extensions.append(info.allocator, vk.extensions.ext_debug_utils.name);
         }
 
-        const instance_bundle = try vkh.createInstance(&base, ins_extensions.items, log_messages, allocator);
+        const instance_bundle = try vkh.createInstance(&base, ins_extensions.items, info.log_messages, info.allocator);
         const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
-        errdefer instance_proxy.destroyInstance(null);
-        errdefer if (instance_bundle.debug_messenger) |messenger| {
-            instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
-        };
+        errdefer {
+            if (instance_bundle.debug_messenger) |messenger| {
+                instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
+            }
+            instance_proxy.destroyInstance(null);
+        }
 
         var surface: vk.SurfaceKHR = .null_handle;
-        try glfw.createWindowSurface(instance_proxy.handle, window, null, &surface);
+        try glfw.createWindowSurface(instance_proxy.handle, info.window, null, &surface);
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
         const pdev_bundle = try vkh.selectPhysicalDevice(
             &instance_proxy,
             surface,
-            device_requirements,
-            allocator,
+            info.device_requirements,
+            info.allocator,
         );
 
         return VulkanContext{
