@@ -20,14 +20,10 @@ pub fn main(init: std.process.Init) !void {
     const window = try glfw.createWindow(800, 600, "Vulkan", null, null);
     defer window.destroy();
 
-    const vk_context = try renderer.VulkanContext.init(true, init.gpa);
+    const vk_context = try renderer.VulkanContext.init(window, true, init.gpa);
     defer vk_context.destroy();
 
     const instance = vk_context.instance();
-
-    var surface: vk.SurfaceKHR = undefined;
-    try glfw.createWindowSurface(instance.handle, window, null, &surface);
-    defer instance.destroySurfaceKHR(surface, null);
 
     const required_device_ext = [_][*:0]const u8{
         "VK_KHR_swapchain",
@@ -36,7 +32,7 @@ pub fn main(init: std.process.Init) !void {
 
     const physical_device = try PhysicalDevice.select(
         &instance,
-        surface,
+        vk_context.surface,
         required_device_ext[0..],
         init.gpa,
     );
@@ -68,7 +64,7 @@ pub fn main(init: std.process.Init) !void {
     const swapchain = try Swapchain.create(
         &instance,
         &physical_device,
-        surface,
+        vk_context.surface,
         &device,
         window,
         init.gpa,
