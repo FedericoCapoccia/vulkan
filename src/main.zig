@@ -2,12 +2,14 @@ const std = @import("std");
 
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
+const renderer = @import("renderer.zig");
 
 const PhysicalDevice = @import("vk/physical_device.zig").PhysicalDevice;
 const Instance = @import("vk/instance.zig").Instance;
 const Device = @import("vk/device.zig").Device;
 const Swapchain = @import("vk/swapchain.zig").Swapchain;
 const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
+const Renderer = @import("renderer.zig").Renderer;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();
@@ -19,24 +21,13 @@ pub fn main(init: std.process.Init) !void {
     const window = try glfw.createWindow(800, 600, "Vulkan", null, null);
     defer window.destroy();
 
-    const required_layers = [_][*:0]const u8{};
-    const glfw_ext = try glfw.getRequiredInstanceExtensions();
-    const extensions = [_][*:0]const u8{
-        "VK_EXT_debug_utils", // TODO: enable this only on debug mode or feature flag
-    };
-    const required_ext = try std.mem.concat(
-        init.gpa,
-        [*:0]const u8,
-        &.{ glfw_ext, extensions[0..] },
-    );
-    defer init.gpa.free(required_ext);
+    const vk_context = try renderer.VulkanContext.init(true, init.gpa);
+    defer vk_context.destroy();
 
-    const vk_instance = try Instance.create(required_layers[0..], required_ext, init.gpa);
-    defer vk_instance.destroy();
-    const instance = vk_instance.proxy();
+    const instance = vk_context.instance();
 
     var surface: vk.SurfaceKHR = undefined;
-    try glfw.createWindowSurface(vk_instance.handle, window, null, &surface);
+    try glfw.createWindowSurface(instance.handle, window, null, &surface);
     defer instance.destroySurfaceKHR(surface, null);
 
     const required_device_ext = [_][*:0]const u8{
