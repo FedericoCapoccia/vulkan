@@ -4,7 +4,6 @@ const glfw = @import("zglfw");
 const vk = @import("vulkan");
 const renderer = @import("renderer.zig");
 
-const PhysicalDevice = @import("vk/physical_device.zig").PhysicalDevice;
 const Device = @import("vk/device.zig").Device;
 const Swapchain = @import("vk/swapchain.zig").Swapchain;
 const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
@@ -20,38 +19,27 @@ pub fn main(init: std.process.Init) !void {
     const window = try glfw.createWindow(800, 600, "Vulkan", null, null);
     defer window.destroy();
 
-    const vk_context = try renderer.VulkanContext.init(window, true, init.gpa);
+    const required_device_ext = [_][*:0]const u8{
+        vk.extensions.khr_swapchain.name,
+    };
+
+    const device_requirements = renderer.DeviceRequirements{
+        .extensions = required_device_ext[0..],
+        .features = .{},
+    };
+
+    const vk_context = try renderer.VulkanContext.init(window, true, &device_requirements, init.gpa);
     defer vk_context.destroy();
 
     const instance = vk_context.instance();
 
-    const required_device_ext = [_][*:0]const u8{
-        "VK_KHR_swapchain",
-        "VK_EXT_extended_dynamic_state",
-    };
-
-    const physical_device = try PhysicalDevice.select(
+    const vk_device = try Device.create(
         &instance,
-        vk_context.surface,
+        vk_context.pdev,
+        vk_context.queue_families.graphics,
         required_device_ext[0..],
         init.gpa,
     );
-    {
-        const props = instance.getPhysicalDeviceProperties(physical_device.handle);
-        const device_name = std.mem.sliceTo(&props.device_name, 0);
-        const api_version: vk.Version = @bitCast(props.api_version);
-
-        std.log.info("Selected Physical Device:", .{});
-        std.log.info("\tName: {s}", .{device_name});
-        std.log.info("\tType: {s}", .{@tagName(props.device_type)});
-        std.log.info("\tVulkan API: {}.{}.{}", .{ api_version.major, api_version.minor, api_version.patch });
-        std.log.info("\tVendor ID: 0x{x}", .{props.vendor_id});
-        std.log.info("\tDevice ID: 0x{x}", .{props.device_id});
-        std.log.info("\tGraphics queue family: {}", .{physical_device.graphics_queue_family_index});
-        std.log.info("\tPresent queue family: {}", .{physical_device.present_queue_family_index});
-    }
-
-    const vk_device = try Device.create(&instance, physical_device, required_device_ext[0..], init.gpa);
     const device = vk_device.proxy();
     defer device.destroyDevice(null);
 
@@ -63,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
 
     const swapchain = try Swapchain.create(
         &instance,
-        &physical_device,
+        vk_context.pdev,
         vk_context.surface,
         &device,
         window,
@@ -112,7 +100,7 @@ pub fn main(init: std.process.Init) !void {
 
     const pool_cinfo = vk.CommandPoolCreateInfo{
         .flags = .{ .reset_command_buffer_bit = true },
-        .queue_family_index = physical_device.graphics_queue_family_index,
+        .queue_family_index = vk_context.queue_families.graphics,
     };
     const cmd_pool = try device.createCommandPool(&pool_cinfo, null);
     defer device.destroyCommandPool(cmd_pool, null);

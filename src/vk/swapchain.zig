@@ -3,8 +3,6 @@ const std = @import("std");
 const vk = @import("vulkan");
 const glfw = @import("zglfw");
 
-const PhysicalDevice = @import("physical_device.zig").PhysicalDevice;
-
 pub const Swapchain = struct {
     allocator: std.mem.Allocator,
     handle: vk.SwapchainKHR,
@@ -17,14 +15,14 @@ pub const Swapchain = struct {
 
     pub fn create(
         instance: *const vk.InstanceProxy,
-        pdev: *const PhysicalDevice,
+        pdev: vk.PhysicalDevice,
         surface: vk.SurfaceKHR,
         device: *const vk.DeviceProxy,
         window: *glfw.Window,
         allocator: std.mem.Allocator,
     ) !Swapchain {
         const capabilities = try instance.getPhysicalDeviceSurfaceCapabilitiesKHR(
-            pdev.handle,
+            pdev,
             surface,
         );
 
@@ -136,12 +134,12 @@ pub const Swapchain = struct {
 
 fn selectPresentMode(
     instance: *const vk.InstanceProxy,
-    pdev: *const PhysicalDevice,
+    pdev: vk.PhysicalDevice,
     surface: vk.SurfaceKHR,
     allocator: std.mem.Allocator,
 ) !vk.PresentModeKHR {
     const available = try instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
-        pdev.handle,
+        pdev,
         surface,
         allocator,
     );
@@ -160,12 +158,12 @@ fn selectPresentMode(
 
 fn selectFormat(
     instance: *const vk.InstanceProxy,
-    pdev: *const PhysicalDevice,
+    pdev: vk.PhysicalDevice,
     surface: vk.SurfaceKHR,
     allocator: std.mem.Allocator,
 ) !vk.SurfaceFormatKHR {
     const available = try instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
-        pdev.handle,
+        pdev,
         surface,
         allocator,
     );
