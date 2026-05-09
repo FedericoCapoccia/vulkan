@@ -67,10 +67,10 @@ fn checkExtensions(required: []const [*:0]const u8, available: []const vk.Extens
         }
 
         if (found) |extension| {
-            std.log.info("\t✅ {s} v{}", .{ required_name, extension.spec_version });
+            std.log.info("\t[OK] {s} v{}", .{ required_name, extension.spec_version });
         } else {
             all_found = false;
-            std.log.err("\t❌ {s} v0", .{required_name});
+            std.log.err("\t[KO] {s} v0", .{required_name});
         }
     }
 

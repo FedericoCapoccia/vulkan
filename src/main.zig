@@ -5,7 +5,6 @@ const vk = @import("vulkan");
 const renderer = @import("renderer.zig");
 
 const PhysicalDevice = @import("vk/physical_device.zig").PhysicalDevice;
-const Instance = @import("vk/instance.zig").Instance;
 const Device = @import("vk/device.zig").Device;
 const Swapchain = @import("vk/swapchain.zig").Swapchain;
 const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
