@@ -2,12 +2,10 @@ const std = @import("std");
 
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
-const renderer = @import("renderer.zig");
+const vkr = @import("renderer.zig");
 
-const Device = @import("vk/device.zig").Device;
 const Swapchain = @import("vk/swapchain.zig").Swapchain;
 const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
-const Renderer = @import("renderer.zig").Renderer;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();
@@ -23,25 +21,20 @@ pub fn main(init: std.process.Init) !void {
         vk.extensions.khr_swapchain.name,
     };
 
-    const device_requirements = renderer.DeviceRequirements{
+    const device_requirements = vkr.DeviceRequirements{
         .extensions = required_device_ext[0..],
         .features = .{},
     };
 
-    const vk_context = try renderer.VulkanContext.init(window, true, &device_requirements, init.gpa);
+    const vk_context = try vkr.VulkanContext.init(window, true, &device_requirements, init.gpa);
     defer vk_context.destroy();
 
-    const instance = vk_context.instance();
+    const renderer = try vkr.Renderer.init(&vk_context, &device_requirements);
+    defer renderer.destroy();
 
-    const vk_device = try Device.create(
-        &instance,
-        vk_context.pdev,
-        vk_context.queue_families.graphics,
-        required_device_ext[0..],
-        init.gpa,
-    );
-    const device = vk_device.proxy();
-    defer device.destroyDevice(null);
+    const instance = vk_context.instance();
+    const device = renderer.device();
+    const graphics_queue = renderer.graphics_queue();
 
     const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
     defer init.gpa.free(exe_dir);
@@ -112,8 +105,7 @@ pub fn main(init: std.process.Init) !void {
     };
     var vk_cmds: [1]vk.CommandBuffer = undefined;
     try device.allocateCommandBuffers(&alloc_cinfo, vk_cmds[0..].ptr);
-    const cmd = vk.CommandBufferProxy.init(vk_cmds[0], &vk_device.wrapper);
-    const present_queue = vk.QueueProxy.init(vk_device.present_queue, &vk_device.wrapper);
+    const cmd = vk.CommandBufferProxy.init(vk_cmds[0], device.wrapper);
     defer device.deviceWaitIdle() catch {};
 
     while (!window.shouldClose()) {
@@ -150,7 +142,7 @@ pub fn main(init: std.process.Init) !void {
             .p_signal_semaphores = signal_semaphores[0..].ptr,
         };
         const submits = [_]vk.SubmitInfo{submit_info};
-        try device.queueSubmit(vk_device.graphics_queue, submits[0..], draw_fence);
+        try graphics_queue.submit(submits[0..], draw_fence);
 
         const present_wait_semaphores = [_]vk.Semaphore{render_finished_sem};
         const present_swapchains = [_]vk.SwapchainKHR{swapchain.handle};
@@ -163,7 +155,7 @@ pub fn main(init: std.process.Init) !void {
             .p_image_indices = present_image_indices[0..].ptr,
         };
 
-        const present_result = try present_queue.presentKHR(&present_info);
+        const present_result = try graphics_queue.presentKHR(&present_info);
         if (present_result != .success) return error.PresentFailed;
     }
 }

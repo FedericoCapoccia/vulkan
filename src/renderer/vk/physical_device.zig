@@ -21,6 +21,7 @@ pub const DeviceRequirements = struct {
 pub const DeviceFeatures = struct {
     dynamic_rendering: bool = true,
     synchronization_2: bool = true,
+    shader_draw_parameters: bool = true,
 };
 
 pub fn select(
@@ -52,13 +53,13 @@ pub fn select(
             .p_next = &features_1_2,
         };
         var features = vk.PhysicalDeviceFeatures2{
-            .features = undefined,
+            .features = .{},
             .p_next = &features_1_1,
         };
 
         instance.getPhysicalDeviceFeatures2(device, &features);
 
-        if (!hasFeatures(requirements.features, features_1_3)) continue;
+        if (!hasFeatures(requirements.features, features_1_1, features_1_3)) continue;
 
         if (!try hasExtensions(instance, device, requirements.extensions, allocator)) continue;
         const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
@@ -102,9 +103,14 @@ fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFa
     std.log.info("\tGraphics queue family: {}", .{queue_families.graphics});
 }
 
-fn hasFeatures(required: DeviceFeatures, available: vk.PhysicalDeviceVulkan13Features) bool {
-    if (required.dynamic_rendering and available.dynamic_rendering == .false) return false;
-    if (required.synchronization_2 and available.synchronization_2 == .false) return false;
+fn hasFeatures(
+    required: DeviceFeatures,
+    available_1_1: vk.PhysicalDeviceVulkan11Features,
+    available_1_3: vk.PhysicalDeviceVulkan13Features,
+) bool {
+    if (required.dynamic_rendering and available_1_3.dynamic_rendering == .false) return false;
+    if (required.synchronization_2 and available_1_3.synchronization_2 == .false) return false;
+    if (required.shader_draw_parameters and available_1_1.shader_draw_parameters == .false) return false;
 
     return true;
 }
@@ -115,9 +121,12 @@ fn checkFeatures(
     instance: *const vk.InstanceProxy,
 ) !void {
     var features_1_3 = vk.PhysicalDeviceVulkan13Features{};
-    var features = vk.PhysicalDeviceFeatures2{
-        .features = undefined,
+    var features_1_1 = vk.PhysicalDeviceVulkan11Features{
         .p_next = &features_1_3,
+    };
+    var features = vk.PhysicalDeviceFeatures2{
+        .features = .{},
+        .p_next = &features_1_1,
     };
     instance.getPhysicalDeviceFeatures2(device, &features);
 
@@ -137,6 +146,15 @@ fn checkFeatures(
             std.log.info("\t[OK] synchronization_2", .{});
         } else {
             std.log.err("\t[MISSING] synchronization_2", .{});
+            return error.MissingRequiredDeviceFeature;
+        }
+    }
+
+    if (required.shader_draw_parameters) {
+        if (features_1_1.shader_draw_parameters == .true) {
+            std.log.info("\t[OK] shader_draw_parameters", .{});
+        } else {
+            std.log.err("\t[MISSING] shader_draw_parameters", .{});
             return error.MissingRequiredDeviceFeature;
         }
     }
@@ -207,7 +225,7 @@ fn findQueueFamilies(
     // The driver reads s_type/p_next before writing queue_family_properties, so each
     // element must be initialized first. Without this, RADV crashed in
     // libvulkan_radeon.so with a general protection exception.
-    var count: u32 = undefined;
+    var count: u32 = 0;
     instance.getPhysicalDeviceQueueFamilyProperties2(device, &count, null);
     const queue_families = try allocator.alloc(vk.QueueFamilyProperties2, count);
     defer allocator.free(queue_families);

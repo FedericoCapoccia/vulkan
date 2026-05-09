@@ -36,7 +36,7 @@ pub const VulkanContext = struct {
             instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
         };
 
-        var surface: vk.SurfaceKHR = undefined;
+        var surface: vk.SurfaceKHR = .null_handle;
         try glfw.createWindowSurface(instance_proxy.handle, window, null, &surface);
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
