@@ -84,7 +84,7 @@ fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
     };
 
     const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
-        .device_address_binding_bit_ext = true,
+        .device_address_binding_bit_ext = false,
         .general_bit_ext = true,
         .performance_bit_ext = true,
         .validation_bit_ext = true,
