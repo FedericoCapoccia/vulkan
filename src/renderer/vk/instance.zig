@@ -14,6 +14,10 @@ pub fn create(base: *const vk.BaseWrapper, requirements: *const profile.EngineRe
     var messenger_cinfo = messengerCreateInfo();
 
     const instance_version = try base.enumerateInstanceVersion();
+    if (instance_version < vk.API_VERSION_1_3.toU32()) {
+        return error.UnsupportedVulkanInstanceVersion;
+    }
+
     const app_info = vk.ApplicationInfo{
         .p_application_name = "Vulkan",
         .application_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
