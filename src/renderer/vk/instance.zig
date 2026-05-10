@@ -13,11 +13,8 @@ pub fn create(
     base: *const vk.BaseWrapper,
     extensions: []const [*:0]const u8,
     log_messages: bool,
-    allocator: std.mem.Allocator,
+    _: std.mem.Allocator,
 ) !Instance {
-    const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
-    defer allocator.free(available_extensions);
-
     var messenger_cinfo = messengerCreateInfo();
     const handle = try profile.createInstance(
         extensions,

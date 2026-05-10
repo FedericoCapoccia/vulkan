@@ -55,9 +55,6 @@ pub fn select(
     const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
     logSelectedDevice(selected_props, physical_device.queue_families);
 
-    const available_extensions = try instance.enumerateDeviceExtensionPropertiesAlloc(physical_device.handle, null, allocator);
-    defer allocator.free(available_extensions);
-
     return physical_device;
 }
 
