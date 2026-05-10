@@ -7,10 +7,18 @@ pub const Instance = struct {
     handle: vk.Instance,
     wrapper: vk.InstanceWrapper,
     debug_messenger: ?vk.DebugUtilsMessengerEXT,
-    api_version: u32,
 };
 
-pub fn create(base: *const vk.BaseWrapper, requirements: *const profile.EngineRequirements, log_messages: bool) !Instance {
+pub fn create(
+    base: *const vk.BaseWrapper,
+    requirements: *const profile.EngineRequirements,
+    log_messages: bool,
+    allocator: std.mem.Allocator,
+) !Instance {
+    const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
+    defer allocator.free(available_extensions);
+    try checkExtensions(requirements.instance_extensions, available_extensions);
+
     var messenger_cinfo = messengerCreateInfo();
 
     const instance_version = try base.enumerateInstanceVersion();
@@ -25,8 +33,6 @@ pub fn create(base: *const vk.BaseWrapper, requirements: *const profile.EngineRe
         .engine_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
         .api_version = instance_version,
     };
-
-    // TODO: check required instance extensions support
 
     const cinfo = vk.InstanceCreateInfo{
         .p_application_info = &app_info,
@@ -48,8 +54,34 @@ pub fn create(base: *const vk.BaseWrapper, requirements: *const profile.EngineRe
         .handle = handle,
         .wrapper = wrapper,
         .debug_messenger = debug_messenger,
-        .api_version = instance_version,
     };
+}
+
+fn checkExtensions(required: []const [*:0]const u8, available: []const vk.ExtensionProperties) !void {
+    std.log.info("Enabled instance extensions", .{});
+
+    var all_found = true;
+    for (required) |required_z| {
+        const required_name = std.mem.span(required_z);
+        var found: ?vk.ExtensionProperties = null;
+
+        for (available) |extension| {
+            const available_name = std.mem.sliceTo(&extension.extension_name, 0);
+            if (std.mem.eql(u8, required_name, available_name)) {
+                found = extension;
+                break;
+            }
+        }
+
+        if (found) |extension| {
+            std.log.info("\t[OK] {s} v{}", .{ required_name, extension.spec_version });
+        } else {
+            all_found = false;
+            std.log.err("\t[MISSING] {s} v0", .{required_name});
+        }
+    }
+
+    if (!all_found) return error.MissingRequiredInstanceExtension;
 }
 
 fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {

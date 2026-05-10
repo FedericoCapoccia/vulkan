@@ -9,11 +9,6 @@ pub const EngineProfile = enum {
     roadmap2026,
 };
 
-pub const EngineCapabilities = struct {
-    profile: EngineProfile,
-    api_version: u32,
-};
-
 // To be extended with must have features not included in VP_LUNARG_minimum_requirements_1_3
 pub const EngineFeature = enum {
     shader_draw_parameters,

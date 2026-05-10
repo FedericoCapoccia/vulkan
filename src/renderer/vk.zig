@@ -9,4 +9,3 @@ const profile = @import("vk/profile.zig");
 pub const EngineRequirements = profile.EngineRequirements;
 pub const EngineFeature = profile.EngineFeature;
 pub const EngineProfile = profile.EngineProfile;
-pub const EngineCapabilities = profile.EngineCapabilities;

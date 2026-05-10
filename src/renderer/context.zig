@@ -13,8 +13,8 @@ pub const VulkanContext = struct {
     pdev: vk.PhysicalDevice,
     queue_families: vkh.QueueFamilies,
 
+    profile: vkh.EngineProfile,
     requirements: vkh.EngineRequirements,
-    capabilities: vkh.EngineCapabilities,
 
     pub const InitInfo = struct {
         window: *glfw.Window,
@@ -47,7 +47,7 @@ pub const VulkanContext = struct {
         );
         errdefer requirements.deinit();
 
-        const instance_bundle = try vkh.createInstance(&base, &requirements, info.log_messages);
+        const instance_bundle = try vkh.createInstance(&base, &requirements, info.log_messages, info.allocator);
         const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
         errdefer {
             if (instance_bundle.debug_messenger) |messenger| {
@@ -74,10 +74,7 @@ pub const VulkanContext = struct {
             .pdev = pdev_bundle.handle,
             .queue_families = pdev_bundle.queue_families,
             .requirements = requirements,
-            .capabilities = .{
-                .profile = .minimal, // TODO: fetch from selected pdev
-                .api_version = instance_bundle.api_version,
-            },
+            .profile = .minimal, // TODO: fetch from selected pdev
         };
     }
 
