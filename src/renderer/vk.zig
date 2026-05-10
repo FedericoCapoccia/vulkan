@@ -1,9 +1,12 @@
+const device = @import("vk/device.zig");
+pub const createDevice = device.create;
 pub const createInstance = @import("vk/instance.zig").create;
-
 const physical_device = @import("vk/physical_device.zig");
 pub const DeviceRequirements = physical_device.DeviceRequirements;
 pub const QueueFamilies = physical_device.QueueFamilies;
 pub const selectPhysicalDevice = physical_device.select;
-
-const device = @import("vk/device.zig");
-pub const createDevice = device.create;
+const profile = @import("vk/profile.zig");
+pub const EngineRequirements = profile.EngineRequirements;
+pub const EngineFeature = profile.EngineFeature;
+pub const EngineProfile = profile.EngineProfile;
+pub const EngineCapabilities = profile.EngineCapabilities;

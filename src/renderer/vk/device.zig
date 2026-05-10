@@ -1,7 +1,7 @@
 const vk = @import("vulkan");
 
 const physical_device = @import("physical_device.zig");
-const profile = @import("../profile.zig");
+const profile = @import("profile.zig");
 const QueueFamilies = physical_device.QueueFamilies;
 
 pub const Device = struct {

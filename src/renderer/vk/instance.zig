@@ -1,25 +1,37 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
-const profile = @import("../profile.zig");
+const profile = @import("profile.zig");
 
 pub const Instance = struct {
     handle: vk.Instance,
     wrapper: vk.InstanceWrapper,
     debug_messenger: ?vk.DebugUtilsMessengerEXT,
+    api_version: u32,
 };
 
-pub fn create(
-    base: *const vk.BaseWrapper,
-    extensions: []const [*:0]const u8,
-    log_messages: bool,
-    _: std.mem.Allocator,
-) !Instance {
+pub fn create(base: *const vk.BaseWrapper, requirements: *const profile.EngineRequirements, log_messages: bool) !Instance {
     var messenger_cinfo = messengerCreateInfo();
-    const handle = try profile.createInstance(
-        extensions,
-        if (log_messages) &messenger_cinfo else null,
-    );
+
+    const instance_version = try base.enumerateInstanceVersion();
+    const app_info = vk.ApplicationInfo{
+        .p_application_name = "Vulkan",
+        .application_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
+        .p_engine_name = "No Engine",
+        .engine_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
+        .api_version = instance_version,
+    };
+
+    // TODO: check required instance extensions support
+
+    const cinfo = vk.InstanceCreateInfo{
+        .p_application_info = &app_info,
+        .enabled_extension_count = @intCast(requirements.instance_extensions.len),
+        .pp_enabled_extension_names = if (requirements.instance_extensions.len == 0) null else requirements.instance_extensions.ptr,
+        .p_next = if (log_messages) &messenger_cinfo else null,
+    };
+
+    const handle = try base.createInstance(&cinfo, null);
     const wrapper = vk.InstanceWrapper.load(handle, base.dispatch.vkGetInstanceProcAddr.?);
     errdefer wrapper.destroyInstance(handle, null);
 
@@ -32,6 +44,7 @@ pub fn create(
         .handle = handle,
         .wrapper = wrapper,
         .debug_messenger = debug_messenger,
+        .api_version = instance_version,
     };
 }
 

@@ -3,48 +3,52 @@ const std = @import("std");
 const vk = @import("vulkan");
 const vp = @import("vulkan-profiles");
 
-pub fn createInstance(
-    extensions: []const [*:0]const u8,
-    p_next: ?*const anyopaque,
-) !vk.Instance {
-    var supported: vp.VkBool32 = vp.VK_FALSE;
-    var selected_profile = profile();
-    try check(vp.vpGetInstanceProfileSupport(null, &selected_profile, &supported));
-    if (supported != vp.VK_TRUE) return error.VulkanProfileUnsupported;
+pub const EngineProfile = enum {
+    minimal,
+    roadmap2024,
+    roadmap2026,
+};
 
-    std.log.info("Vulkan profile: {s} v{}", .{
-        selected_profile.profileName,
-        selected_profile.specVersion,
-    });
+pub const EngineCapabilities = struct {
+    profile: EngineProfile,
+    api_version: u32,
+};
 
-    const app_info = vp.VkApplicationInfo{
-        .sType = vp.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "Vulkan",
-        .applicationVersion = vp.VK_MAKE_VERSION(0, 1, 0),
-        .pEngineName = "No Engine",
-        .engineVersion = vp.VK_MAKE_VERSION(0, 1, 0),
-        .apiVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_MIN_API_VERSION,
-    };
+// To be extended with must have features not included in VP_LUNARG_minimum_requirements_1_3
+pub const EngineFeature = enum {
+    shader_draw_parameters,
+};
 
-    const cinfo = vp.VkInstanceCreateInfo{
-        .sType = vp.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pNext = p_next,
-        .pApplicationInfo = &app_info,
-        .enabledExtensionCount = @intCast(extensions.len),
-        .ppEnabledExtensionNames = if (extensions.len == 0) null else @ptrCast(extensions.ptr),
-    };
-
-    const profile_cinfo = vp.VpInstanceCreateInfo{
-        .pCreateInfo = &cinfo,
-        .enabledFullProfileCount = 1,
-        .pEnabledFullProfiles = &selected_profile,
-    };
-
-    var instance: vp.VkInstance = null;
-    try check(vp.vpCreateInstance(&profile_cinfo, null, &instance));
-
-    return fromCInstance(instance);
-}
+pub const EngineRequirements = struct {
+    allocator: std.mem.Allocator,
+    instance_extensions: []const [*:0]const u8,
+    device_extensions: []const [*:0]const u8,
+    extra_features: []const EngineFeature,
+    pub fn init(
+        allocator: std.mem.Allocator,
+        instance_extensions: []const [*:0]const u8,
+        device_extensions: []const [*:0]const u8,
+        extra_features: []const EngineFeature,
+    ) !EngineRequirements {
+        const owned_instance_extensions = try allocator.dupe([*:0]const u8, instance_extensions);
+        errdefer allocator.free(owned_instance_extensions);
+        const owned_device_extensions = try allocator.dupe([*:0]const u8, device_extensions);
+        errdefer allocator.free(owned_device_extensions);
+        const owned_extra_features = try allocator.dupe(EngineFeature, extra_features);
+        errdefer allocator.free(owned_extra_features);
+        return .{
+            .allocator = allocator,
+            .instance_extensions = owned_instance_extensions,
+            .device_extensions = owned_device_extensions,
+            .extra_features = owned_extra_features,
+        };
+    }
+    pub fn deinit(self: *const EngineRequirements) void {
+        self.allocator.free(self.instance_extensions);
+        self.allocator.free(self.device_extensions);
+        self.allocator.free(self.extra_features);
+    }
+};
 
 pub fn physicalDeviceSupported(instance: vk.Instance, pdev: vk.PhysicalDevice) !bool {
     var supported: vp.VkBool32 = vp.VK_FALSE;

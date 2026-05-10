@@ -13,6 +13,9 @@ pub const VulkanContext = struct {
     pdev: vk.PhysicalDevice,
     queue_families: vkh.QueueFamilies,
 
+    requirements: vkh.EngineRequirements,
+    capabilities: vkh.EngineCapabilities,
+
     pub const InitInfo = struct {
         window: *glfw.Window,
         log_messages: bool,
@@ -22,15 +25,28 @@ pub const VulkanContext = struct {
     pub fn init(info: InitInfo) !VulkanContext {
         const base = vk.BaseWrapper.load(glfw.getInstanceProcAddress);
 
-        var ins_extensions: std.ArrayList([*:0]const u8) = .empty;
-        defer ins_extensions.deinit(info.allocator);
+        var instance_extensions: std.ArrayList([*:0]const u8) = .empty;
+        defer instance_extensions.deinit(info.allocator);
 
-        try ins_extensions.appendSlice(info.allocator, try glfw.getRequiredInstanceExtensions());
+        try instance_extensions.appendSlice(info.allocator, try glfw.getRequiredInstanceExtensions());
         if (info.log_messages) {
-            try ins_extensions.append(info.allocator, vk.extensions.ext_debug_utils.name);
+            try instance_extensions.append(info.allocator, vk.extensions.ext_debug_utils.name);
         }
 
-        const instance_bundle = try vkh.createInstance(&base, ins_extensions.items, info.log_messages, info.allocator);
+        const device_extensions = [_][*:0]const u8{
+            vk.extensions.khr_swapchain.name,
+        };
+
+        const requirements = try vkh.EngineRequirements.init(
+            info.allocator,
+            instance_extensions.items,
+            device_extensions[0..],
+            &.{
+                .shader_draw_parameters,
+            },
+        );
+
+        const instance_bundle = try vkh.createInstance(&base, &requirements, info.log_messages);
         const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
         errdefer {
             if (instance_bundle.debug_messenger) |messenger| {
@@ -56,10 +72,17 @@ pub const VulkanContext = struct {
             .surface = surface,
             .pdev = pdev_bundle.handle,
             .queue_families = pdev_bundle.queue_families,
+            .requirements = requirements,
+            .capabilities = .{
+                .profile = .minimal, // TODO: fetch from selected pdev
+                .api_version = instance_bundle.api_version,
+            },
         };
     }
 
     pub fn destroy(self: *const VulkanContext) void {
+        self.requirements.deinit();
+
         const instance_proxy = self.instance();
 
         instance_proxy.destroySurfaceKHR(self.surface, null);

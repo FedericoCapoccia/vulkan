@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
-const profile = @import("../profile.zig");
+const profile = @import("profile.zig");
 
 pub const PhysicalDevice = struct {
     handle: vk.PhysicalDevice,
