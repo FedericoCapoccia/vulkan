@@ -23,7 +23,7 @@ pub fn create(
         .application_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
         .p_engine_name = "No Engine",
         .engine_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
-        .api_version = vk.API_VERSION_1_4.toU32(),
+        .api_version = vk.API_VERSION_1_3.toU32(),
     };
 
     var messenger_cinfo = messengerCreateInfo();

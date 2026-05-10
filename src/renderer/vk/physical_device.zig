@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
+const profile = @import("../profile.zig");
 
 pub const PhysicalDevice = struct {
     handle: vk.PhysicalDevice,
@@ -13,21 +14,10 @@ pub const QueueFamilies = struct {
     // transfer: u32,
 };
 
-pub const DeviceRequirements = struct {
-    extensions: []const [*:0]const u8,
-    features: DeviceFeatures,
-};
-
-pub const DeviceFeatures = struct {
-    dynamic_rendering: bool = true,
-    synchronization_2: bool = true,
-    shader_draw_parameters: bool = true,
-};
-
 pub fn select(
     instance: *const vk.InstanceProxy,
     surface: vk.SurfaceKHR,
-    requirements: *const DeviceRequirements,
+    extensions: []const [*:0]const u8,
     allocator: std.mem.Allocator,
 ) !PhysicalDevice {
     const devices = try instance.enumeratePhysicalDevicesAlloc(allocator);
@@ -42,26 +32,9 @@ pub fn select(
 
         if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
 
-        var features_1_4 = vk.PhysicalDeviceVulkan14Features{};
-        var features_1_3 = vk.PhysicalDeviceVulkan13Features{
-            .p_next = &features_1_4,
-        };
-        var features_1_2 = vk.PhysicalDeviceVulkan12Features{
-            .p_next = &features_1_3,
-        };
-        var features_1_1 = vk.PhysicalDeviceVulkan11Features{
-            .p_next = &features_1_2,
-        };
-        var features = vk.PhysicalDeviceFeatures2{
-            .features = .{},
-            .p_next = &features_1_1,
-        };
+        if (!try profile.physicalDeviceSupported(instance.handle, device)) continue;
 
-        instance.getPhysicalDeviceFeatures2(device, &features);
-
-        if (!hasFeatures(requirements.features, features_1_1, features_1_3)) continue;
-
-        if (!try hasExtensions(instance, device, requirements.extensions, allocator)) continue;
+        if (!try hasExtensions(instance, device, extensions, allocator)) continue;
         const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
 
         const candidate = PhysicalDevice{
@@ -83,11 +56,11 @@ pub fn select(
 
     const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
     logSelectedDevice(selected_props, physical_device.queue_families);
-    try checkFeatures(requirements.features, physical_device.handle, instance);
+    profile.logSelectedProfile();
 
     const available_extensions = try instance.enumerateDeviceExtensionPropertiesAlloc(physical_device.handle, null, allocator);
     defer allocator.free(available_extensions);
-    try checkExtensions(requirements.extensions, available_extensions);
+    try checkExtensions(extensions, available_extensions);
 
     return physical_device;
 }
@@ -101,63 +74,6 @@ fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFa
     std.log.info("\tType: {s}", .{@tagName(props.device_type)});
     std.log.info("\tVulkan API: {}.{}.{}", .{ api_version.major, api_version.minor, api_version.patch });
     std.log.info("\tGraphics queue family: {}", .{queue_families.graphics});
-}
-
-fn hasFeatures(
-    required: DeviceFeatures,
-    available_1_1: vk.PhysicalDeviceVulkan11Features,
-    available_1_3: vk.PhysicalDeviceVulkan13Features,
-) bool {
-    if (required.dynamic_rendering and available_1_3.dynamic_rendering == .false) return false;
-    if (required.synchronization_2 and available_1_3.synchronization_2 == .false) return false;
-    if (required.shader_draw_parameters and available_1_1.shader_draw_parameters == .false) return false;
-
-    return true;
-}
-
-fn checkFeatures(
-    required: DeviceFeatures,
-    device: vk.PhysicalDevice,
-    instance: *const vk.InstanceProxy,
-) !void {
-    var features_1_3 = vk.PhysicalDeviceVulkan13Features{};
-    var features_1_1 = vk.PhysicalDeviceVulkan11Features{
-        .p_next = &features_1_3,
-    };
-    var features = vk.PhysicalDeviceFeatures2{
-        .features = .{},
-        .p_next = &features_1_1,
-    };
-    instance.getPhysicalDeviceFeatures2(device, &features);
-
-    std.log.info("Enabled device features", .{});
-
-    if (required.dynamic_rendering) {
-        if (features_1_3.dynamic_rendering == .true) {
-            std.log.info("\t[OK] dynamic_rendering", .{});
-        } else {
-            std.log.err("\t[MISSING] dynamic_rendering", .{});
-            return error.MissingRequiredDeviceFeature;
-        }
-    }
-
-    if (required.synchronization_2) {
-        if (features_1_3.synchronization_2 == .true) {
-            std.log.info("\t[OK] synchronization_2", .{});
-        } else {
-            std.log.err("\t[MISSING] synchronization_2", .{});
-            return error.MissingRequiredDeviceFeature;
-        }
-    }
-
-    if (required.shader_draw_parameters) {
-        if (features_1_1.shader_draw_parameters == .true) {
-            std.log.info("\t[OK] shader_draw_parameters", .{});
-        } else {
-            std.log.err("\t[MISSING] shader_draw_parameters", .{});
-            return error.MissingRequiredDeviceFeature;
-        }
-    }
 }
 
 fn hasExtensions(

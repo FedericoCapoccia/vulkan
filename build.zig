@@ -3,11 +3,11 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const shaders_step = b.step("shaders", "Compile Slang shaders");
 
-    const registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
+    const vulkan_headers = b.dependency("vulkan_headers", .{});
+    const registry = vulkan_headers.path("registry/vk.xml");
+
     const vk_gen = b.dependency("vulkan", .{}).artifact("vulkan-zig-generator");
-
     const vk_generate_cmd = b.addRunArtifact(vk_gen);
     vk_generate_cmd.addFileArg(registry);
 
@@ -24,18 +24,27 @@ pub fn build(b: *std.Build) void {
         .x11 = false,
         .wayland = true,
     });
-
     const zglfw_mod = zglfw.module("root");
     zglfw_mod.addImport("vulkan", vulkan_zig);
+
+    const profiles = addVulkanProfiles(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .registry = registry,
+        .vulkan_include = vulkan_headers.path("include"),
+    });
 
     const mod = b.addModule("vulkan", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-
     mod.addImport("vulkan", vulkan_zig);
     mod.addImport("zglfw", zglfw_mod);
+    mod.addImport("vulkan-profiles", profiles.module);
+    mod.linkLibrary(profiles.library);
+    mod.linkSystemLibrary("vulkan", .{});
     if (target.result.os.tag != .emscripten) {
         mod.linkLibrary(zglfw.artifact("glfw"));
     }
@@ -45,28 +54,103 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
         .use_llvm = true,
     });
-
     b.installArtifact(exe);
 
-    const exe_c = b.addExecutable(.{
+    const check_exe = b.addExecutable(.{
         .name = "vulkan",
         .root_module = mod,
         .use_llvm = true,
     });
+
+    const shaders_step = b.step("shaders", "Compile Slang shaders");
+    addShaderCompileSteps(b, shaders_step);
 
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(shaders_step);
     run_cmd.step.dependOn(b.getInstallStep());
-
-    const check = b.step("check", "Check if exe compiles");
-    check.dependOn(&exe_c.step);
-    addShaderCompileSteps(b, shaders_step);
-
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+
+    const check = b.step("check", "Check if exe compiles");
+    check.dependOn(&check_exe.step);
+}
+
+const VulkanProfiles = struct {
+    module: *std.Build.Module,
+    library: *std.Build.Step.Compile,
+};
+
+const VulkanProfilesOptions = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    registry: std.Build.LazyPath,
+    vulkan_include: std.Build.LazyPath,
+};
+
+fn addVulkanProfiles(options: VulkanProfilesOptions) VulkanProfiles {
+    const b = options.b;
+    const generated = generateVulkanProfiles(b, options.registry);
+    const include_path = generated.path(b, "include");
+    const header = generated.path(b, "include/vulkan/vulkan_profiles.h");
+
+    const lib_mod = b.createModule(.{
+        .target = options.target,
+        .optimize = options.optimize,
+        .link_libcpp = true,
+    });
+    lib_mod.addIncludePath(include_path);
+    lib_mod.addIncludePath(options.vulkan_include);
+    lib_mod.addCSourceFile(.{
+        .file = generated.path(b, "src/vulkan_profiles.cpp"),
+        .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti" },
+    });
+
+    const library = b.addLibrary(.{
+        .name = "vulkan_profiles",
+        .root_module = lib_mod,
+        .linkage = .static,
+    });
+
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = header,
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    translate_c.addIncludePath(include_path);
+    translate_c.addIncludePath(options.vulkan_include);
+
+    return .{
+        .module = translate_c.createModule(),
+        .library = library,
+    };
+}
+
+fn generateVulkanProfiles(b: *std.Build, registry: std.Build.LazyPath) std.Build.LazyPath {
+    const cmd = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        \\
+        \\set -eu
+        \\mkdir -p "$1/include/vulkan" "$1/src"
+        \\python3 -W ignore::DeprecationWarning "$4" \
+        \\  --registry "$2" \
+        \\  --input "$3" \
+        \\  --output-library-inc "$1/include/vulkan" \
+        \\  --output-library-src "$1/src"
+        ,
+        "sh",
+    });
+
+    const output = cmd.addOutputDirectoryArg("vulkan_profiles");
+    cmd.addFileArg(registry);
+    cmd.addDirectoryArg(b.path("vendor/vulkan_profiles/profiles"));
+    cmd.addFileArg(b.path("vendor/vulkan_profiles/gen_profiles_solution.py"));
+
+    return output;
 }
 
 fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
@@ -81,7 +165,6 @@ fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".slang")) continue;
 
         const output_name = b.fmt("{s}.spv", .{entry.name[0 .. entry.name.len - ".slang".len]});
-
         const cmd = b.addSystemCommand(&.{"slangc"});
         cmd.addFileArg(b.path(b.pathJoin(&.{ "resources/shaders", entry.name })));
         cmd.addArgs(&.{

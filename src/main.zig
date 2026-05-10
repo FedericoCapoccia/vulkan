@@ -21,22 +21,17 @@ pub fn main(init: std.process.Init) !void {
         vk.extensions.khr_swapchain.name,
     };
 
-    const device_requirements = vkr.DeviceRequirements{
-        .extensions = required_device_ext[0..],
-        .features = .{},
-    };
-
     const vk_context = try vkr.VulkanContext.init(.{
         .window = window,
         .log_messages = true,
-        .device_requirements = &device_requirements,
+        .device_extensions = &required_device_ext,
         .allocator = init.gpa,
     });
     defer vk_context.destroy();
 
     const renderer = try vkr.Renderer.init(.{
         .ctx = &vk_context,
-        .requirements = &device_requirements,
+        .extensions = &required_device_ext,
     });
     defer renderer.destroy();
 
