@@ -15,16 +15,19 @@ pub fn create(
     log_messages: bool,
     allocator: std.mem.Allocator,
 ) !Instance {
+    const instance_version = try base.enumerateInstanceVersion();
+    if (instance_version < vk.API_VERSION_1_3.toU32()) {
+        return error.UnsupportedVulkanInstanceVersion;
+    }
+
+    const version: vk.Version = @bitCast(instance_version);
+    std.log.info("Vulkan instance API: {}.{}.{}", .{ version.major, version.minor, version.patch });
+
     const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
     defer allocator.free(available_extensions);
     try checkExtensions(requirements.instance_extensions, available_extensions);
 
     var messenger_cinfo = messengerCreateInfo();
-
-    const instance_version = try base.enumerateInstanceVersion();
-    if (instance_version < vk.API_VERSION_1_3.toU32()) {
-        return error.UnsupportedVulkanInstanceVersion;
-    }
 
     const app_info = vk.ApplicationInfo{
         .p_application_name = "Vulkan",
