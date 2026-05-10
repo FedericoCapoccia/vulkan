@@ -45,6 +45,7 @@ pub const VulkanContext = struct {
                 .shader_draw_parameters,
             },
         );
+        errdefer requirements.deinit();
 
         const instance_bundle = try vkh.createInstance(&base, &requirements, info.log_messages);
         const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
