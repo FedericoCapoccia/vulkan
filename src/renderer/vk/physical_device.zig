@@ -17,12 +17,11 @@ pub const QueueFamilies = struct {
 pub fn select(
     instance: *const vk.InstanceProxy,
     surface: vk.SurfaceKHR,
-    extensions: []const [*:0]const u8,
     allocator: std.mem.Allocator,
 ) !PhysicalDevice {
     const devices = try instance.enumeratePhysicalDevicesAlloc(allocator);
     defer allocator.free(devices);
-    if (devices.len == 0) return error.NoVulkan14PhysicalDevice;
+    if (devices.len == 0) return error.NoPhysicalDevice;
 
     var selected: ?PhysicalDevice = null;
     var selected_props: vk.PhysicalDeviceProperties = undefined;
@@ -34,7 +33,6 @@ pub fn select(
 
         if (!try profile.physicalDeviceSupported(instance.handle, device)) continue;
 
-        if (!try hasExtensions(instance, device, extensions, allocator)) continue;
         const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
 
         const candidate = PhysicalDevice{
@@ -56,11 +54,9 @@ pub fn select(
 
     const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
     logSelectedDevice(selected_props, physical_device.queue_families);
-    profile.logSelectedProfile();
 
     const available_extensions = try instance.enumerateDeviceExtensionPropertiesAlloc(physical_device.handle, null, allocator);
     defer allocator.free(available_extensions);
-    try checkExtensions(extensions, available_extensions);
 
     return physical_device;
 }
@@ -74,60 +70,6 @@ fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFa
     std.log.info("\tType: {s}", .{@tagName(props.device_type)});
     std.log.info("\tVulkan API: {}.{}.{}", .{ api_version.major, api_version.minor, api_version.patch });
     std.log.info("\tGraphics queue family: {}", .{queue_families.graphics});
-}
-
-fn hasExtensions(
-    instance: *const vk.InstanceProxy,
-    device: vk.PhysicalDevice,
-    required: []const [*:0]const u8,
-    allocator: std.mem.Allocator,
-) !bool {
-    const available = try instance.enumerateDeviceExtensionPropertiesAlloc(device, null, allocator);
-    defer allocator.free(available);
-
-    for (required) |required_z| {
-        const required_name = std.mem.span(required_z);
-        var found = false;
-
-        for (available) |extension| {
-            const available_name = std.mem.sliceTo(&extension.extension_name, 0);
-            if (std.mem.eql(u8, required_name, available_name)) {
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) return false;
-    }
-
-    return true;
-}
-
-fn checkExtensions(required: []const [*:0]const u8, available: []const vk.ExtensionProperties) !void {
-    std.log.info("Enabled device extensions", .{});
-
-    var all_found = true;
-    for (required) |required_z| {
-        const required_name = std.mem.span(required_z);
-        var found: ?vk.ExtensionProperties = null;
-
-        for (available) |extension| {
-            const available_name = std.mem.sliceTo(&extension.extension_name, 0);
-            if (std.mem.eql(u8, required_name, available_name)) {
-                found = extension;
-                break;
-            }
-        }
-
-        if (found) |extension| {
-            std.log.info("\t[OK] {s} v{}", .{ required_name, extension.spec_version });
-        } else {
-            all_found = false;
-            std.log.err("\t[MISSING] {s} v0", .{required_name});
-        }
-    }
-
-    if (!all_found) return error.MissingRequiredDeviceExtension;
 }
 
 fn findQueueFamilies(

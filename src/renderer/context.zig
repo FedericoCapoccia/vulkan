@@ -16,7 +16,6 @@ pub const VulkanContext = struct {
     pub const InitInfo = struct {
         window: *glfw.Window,
         log_messages: bool,
-        device_extensions: []const [*:0]const u8,
         allocator: std.mem.Allocator,
     };
 
@@ -47,7 +46,6 @@ pub const VulkanContext = struct {
         const pdev_bundle = try vkh.selectPhysicalDevice(
             &instance_proxy,
             surface,
-            info.device_extensions,
             info.allocator,
         );
 

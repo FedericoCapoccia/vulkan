@@ -44,8 +44,8 @@ pub fn build(b: *std.Build) void {
     mod.addImport("zglfw", zglfw_mod);
     mod.addImport("vulkan-profiles", profiles.module);
     mod.linkLibrary(profiles.library);
-    mod.linkSystemLibrary("vulkan", .{});
     if (target.result.os.tag != .emscripten) {
+        mod.linkSystemLibrary("vulkan", .{});
         mod.linkLibrary(zglfw.artifact("glfw"));
     }
 

@@ -17,22 +17,14 @@ pub fn main(init: std.process.Init) !void {
     const window = try glfw.createWindow(800, 600, "Vulkan", null, null);
     defer window.destroy();
 
-    const required_device_ext = [_][*:0]const u8{
-        vk.extensions.khr_swapchain.name,
-    };
-
     const vk_context = try vkr.VulkanContext.init(.{
         .window = window,
         .log_messages = true,
-        .device_extensions = &required_device_ext,
         .allocator = init.gpa,
     });
     defer vk_context.destroy();
 
-    const renderer = try vkr.Renderer.init(.{
-        .ctx = &vk_context,
-        .extensions = &required_device_ext,
-    });
+    const renderer = try vkr.Renderer.init(&vk_context);
     defer renderer.destroy();
 
     const instance = vk_context.instance();

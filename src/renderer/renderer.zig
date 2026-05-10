@@ -10,24 +10,23 @@ pub const Renderer = struct {
     device_wrapper: vk.DeviceWrapper,
     graphics_queue_handle: vk.Queue,
 
-    pub const InitInfo = struct {
-        ctx: *const VulkanContext,
-        extensions: []const [*:0]const u8,
-    };
+    pub fn init(ctx: *const VulkanContext) !Renderer {
+        const instance = ctx.instance();
 
-    pub fn init(info: InitInfo) !Renderer {
-        const instance = info.ctx.instance();
+        const extensions = [_][*:0]const u8{
+            vk.extensions.khr_swapchain.name,
+        };
 
         const device_bundle = try vkh.createDevice(
             &instance,
-            info.ctx.pdev,
-            info.ctx.queue_families,
-            info.extensions,
+            ctx.pdev,
+            ctx.queue_families,
+            &extensions,
         );
         const device_proxy = vk.DeviceProxy.init(device_bundle.handle, &device_bundle.wrapper);
         errdefer device_proxy.destroyDevice(null);
 
-        const gq_handle = device_proxy.getDeviceQueue(info.ctx.queue_families.graphics, 0);
+        const gq_handle = device_proxy.getDeviceQueue(ctx.queue_families.graphics, 0);
 
         return Renderer{
             .device_handle = device_bundle.handle,

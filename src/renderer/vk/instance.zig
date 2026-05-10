@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
+const profile = @import("../profile.zig");
 
 pub const Instance = struct {
     handle: vk.Instance,
@@ -16,25 +17,12 @@ pub fn create(
 ) !Instance {
     const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
     defer allocator.free(available_extensions);
-    try checkExtensions(extensions, available_extensions);
-
-    const app_info = vk.ApplicationInfo{
-        .p_application_name = "Vulkan",
-        .application_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
-        .p_engine_name = "No Engine",
-        .engine_version = vk.makeApiVersion(0, 1, 0, 0).toU32(),
-        .api_version = vk.API_VERSION_1_3.toU32(),
-    };
 
     var messenger_cinfo = messengerCreateInfo();
-    const cinfo = vk.InstanceCreateInfo{
-        .p_application_info = &app_info,
-        .enabled_extension_count = @intCast(extensions.len),
-        .pp_enabled_extension_names = extensions.ptr,
-        .p_next = if (log_messages) &messenger_cinfo else null,
-    };
-
-    const handle = try base.createInstance(&cinfo, null);
+    const handle = try profile.createInstance(
+        extensions,
+        if (log_messages) &messenger_cinfo else null,
+    );
     const wrapper = vk.InstanceWrapper.load(handle, base.dispatch.vkGetInstanceProcAddr.?);
     errdefer wrapper.destroyInstance(handle, null);
 
@@ -48,33 +36,6 @@ pub fn create(
         .wrapper = wrapper,
         .debug_messenger = debug_messenger,
     };
-}
-
-fn checkExtensions(required: []const [*:0]const u8, available: []const vk.ExtensionProperties) !void {
-    std.log.info("Enabled instance extensions", .{});
-
-    var all_found = true;
-    for (required) |required_z| {
-        const required_name = std.mem.span(required_z);
-        var found: ?vk.ExtensionProperties = null;
-
-        for (available) |extension| {
-            const available_name = std.mem.sliceTo(&extension.extension_name, 0);
-            if (std.mem.eql(u8, required_name, available_name)) {
-                found = extension;
-                break;
-            }
-        }
-
-        if (found) |extension| {
-            std.log.info("\t[OK] {s} v{}", .{ required_name, extension.spec_version });
-        } else {
-            all_found = false;
-            std.log.err("\t[MISSING] {s} v0", .{required_name});
-        }
-    }
-
-    if (!all_found) return error.MissingRequiredInstanceExtension;
 }
 
 fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
