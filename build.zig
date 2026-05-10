@@ -6,13 +6,19 @@ pub fn build(b: *std.Build) void {
 
     const vulkan_headers = b.dependency("vulkan_headers", .{});
     const registry = vulkan_headers.path("registry/vk.xml");
+    const generated_vk_zig_path = "src/vulkan.zig";
 
     const vk_gen = b.dependency("vulkan", .{}).artifact("vulkan-zig-generator");
     const vk_generate_cmd = b.addRunArtifact(vk_gen);
     vk_generate_cmd.addFileArg(registry);
 
+    const generate_step = b.step("generate", "Generate vk.zig bindings");
+    const update_vk = b.addUpdateSourceFiles();
+    update_vk.addCopyFileToSource(vk_generate_cmd.addOutputFileArg("vk.zig"), generated_vk_zig_path);
+    generate_step.dependOn(&update_vk.step);
+
     const vulkan_zig = b.addModule("vulkan-zig", .{
-        .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
+        .root_source_file = b.path(generated_vk_zig_path),
         .target = target,
         .optimize = optimize,
     });
@@ -54,6 +60,9 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
         .use_llvm = true,
     });
+    if (!pathExists(b, generated_vk_zig_path)) {
+        exe.step.dependOn(generate_step);
+    }
     b.installArtifact(exe);
 
     const check_exe = b.addExecutable(.{
@@ -61,6 +70,9 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
         .use_llvm = true,
     });
+    if (!pathExists(b, generated_vk_zig_path)) {
+        check_exe.step.dependOn(generate_step);
+    }
 
     const shaders_step = b.step("shaders", "Compile Slang shaders");
     addShaderCompileSteps(b, shaders_step);
@@ -189,4 +201,9 @@ fn addShaderCompileSteps(b: *std.Build, shaders_step: *std.Build.Step) void {
         );
         shaders_step.dependOn(&install.step);
     }
+}
+
+fn pathExists(b: *std.Build, path: []const u8) bool {
+    std.Io.Dir.cwd().access(b.graph.io, path, .{}) catch return false;
+    return true;
 }
