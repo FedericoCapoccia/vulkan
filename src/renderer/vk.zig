@@ -9,3 +9,5 @@ pub const EngineRequirements = profile.EngineRequirements;
 pub const EngineFeature = profile.EngineFeature;
 pub const EngineExtension = profile.EngineExtension;
 pub const EngineProfile = profile.EngineProfile;
+const swapchain = @import("vk/swapchain.zig");
+pub const Swapchain = swapchain.Swapchain;

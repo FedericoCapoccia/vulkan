@@ -4,8 +4,8 @@ const glfw = @import("zglfw");
 const vk = @import("vulkan");
 const vkr = @import("renderer.zig");
 
-const Swapchain = @import("vk/swapchain.zig").Swapchain;
 const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
+const Swapchain = @import("renderer/vk/swapchain.zig").Swapchain;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();
@@ -24,10 +24,9 @@ pub fn main(init: std.process.Init) !void {
     });
     defer vk_context.destroy();
 
-    const renderer = try vkr.Renderer.init(&vk_context);
+    const renderer = try vkr.Renderer.init(&vk_context, window, init.gpa);
     defer renderer.destroy();
 
-    const instance = vk_context.instance();
     const device = renderer.device();
     const graphics_queue = renderer.graphics_queue();
 
@@ -36,16 +35,6 @@ pub fn main(init: std.process.Init) !void {
 
     const shader_dir = try std.fs.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
     defer init.gpa.free(shader_dir);
-
-    const swapchain = try Swapchain.create(
-        &instance,
-        vk_context.pdev,
-        vk_context.surface,
-        &device,
-        window,
-        init.gpa,
-    );
-    defer swapchain.destroy(device);
 
     const triangle_shader = try createShaderModule(
         init.io,
@@ -56,13 +45,18 @@ pub fn main(init: std.process.Init) !void {
     );
     defer device.destroyShaderModule(triangle_shader, null);
 
-    const pipeline = try GraphicPipeline.create(&device, triangle_shader, swapchain.extent, swapchain.format.format);
+    const pipeline = try GraphicPipeline.create(
+        &device,
+        triangle_shader,
+        renderer.swapchain.extent,
+        renderer.swapchain.format.format,
+    );
     defer pipeline.destroy(device);
 
     const present_complete_sem = try device.createSemaphore(&.{}, null);
     defer device.destroySemaphore(present_complete_sem, null);
 
-    const render_finished_sems = try init.gpa.alloc(vk.Semaphore, swapchain.images.len);
+    const render_finished_sems = try init.gpa.alloc(vk.Semaphore, renderer.swapchain.images.len);
     errdefer init.gpa.free(render_finished_sems);
     var render_finished_sem_count: usize = 0;
     errdefer {
@@ -112,13 +106,13 @@ pub fn main(init: std.process.Init) !void {
         try cmd.resetCommandBuffer(.{});
 
         const res = try device.acquireNextImageKHR(
-            swapchain.handle,
+            renderer.swapchain.handle,
             std.math.maxInt(u64),
             present_complete_sem,
             .null_handle,
         );
 
-        try recordCmd(cmd, swapchain, pipeline, res.image_index);
+        try recordCmd(cmd, renderer.swapchain, pipeline, res.image_index);
         const render_finished_sem = render_finished_sems[res.image_index];
 
         const wait_dst_stage_mask = [_]vk.PipelineStageFlags{
@@ -140,7 +134,7 @@ pub fn main(init: std.process.Init) !void {
         try graphics_queue.submit(submits[0..], draw_fence);
 
         const present_wait_semaphores = [_]vk.Semaphore{render_finished_sem};
-        const present_swapchains = [_]vk.SwapchainKHR{swapchain.handle};
+        const present_swapchains = [_]vk.SwapchainKHR{renderer.swapchain.handle};
         const present_image_indices = [_]u32{res.image_index};
         const present_info = vk.PresentInfoKHR{
             .wait_semaphore_count = present_wait_semaphores.len,
@@ -155,7 +149,12 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-fn recordCmd(cmd: vk.CommandBufferProxy, swapchain: Swapchain, pipeline: GraphicPipeline, img_idx: u32) !void {
+fn recordCmd(
+    cmd: vk.CommandBufferProxy,
+    swapchain: Swapchain,
+    pipeline: GraphicPipeline,
+    img_idx: u32,
+) !void {
     const begin_info = vk.CommandBufferBeginInfo{
         .flags = .{ .one_time_submit_bit = true },
     };
