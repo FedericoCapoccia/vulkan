@@ -9,53 +9,147 @@ pub const EngineProfile = enum {
     roadmap2026,
 };
 
-// To be extended with must have features not included in VP_LUNARG_minimum_requirements_1_3
 pub const EngineFeature = enum {
     shader_draw_parameters,
 };
 
-pub const EngineRequirements = struct {
-    allocator: std.mem.Allocator,
-    instance_extensions: []const [*:0]const u8,
-    device_extensions: []const [*:0]const u8,
-    extra_features: []const EngineFeature,
-    pub fn init(
-        allocator: std.mem.Allocator,
-        instance_extensions: []const [*:0]const u8,
-        device_extensions: []const [*:0]const u8,
-        extra_features: []const EngineFeature,
-    ) !EngineRequirements {
-        const owned_instance_extensions = try allocator.dupe([*:0]const u8, instance_extensions);
-        errdefer allocator.free(owned_instance_extensions);
-        const owned_device_extensions = try allocator.dupe([*:0]const u8, device_extensions);
-        errdefer allocator.free(owned_device_extensions);
-        const owned_extra_features = try allocator.dupe(EngineFeature, extra_features);
-        errdefer allocator.free(owned_extra_features);
-        return .{
-            .allocator = allocator,
-            .instance_extensions = owned_instance_extensions,
-            .device_extensions = owned_device_extensions,
-            .extra_features = owned_extra_features,
-        };
-    }
-    pub fn deinit(self: *const EngineRequirements) void {
-        self.allocator.free(self.instance_extensions);
-        self.allocator.free(self.device_extensions);
-        self.allocator.free(self.extra_features);
-    }
+pub const EngineExtension = enum {
+    swapchain,
 };
 
-pub fn physicalDeviceSupported(instance: vk.Instance, pdev: vk.PhysicalDevice) !bool {
-    var supported: vp.VkBool32 = vp.VK_FALSE;
-    var selected_profile = profile();
-    try check(vp.vpGetPhysicalDeviceProfileSupport(
-        toCInstance(instance),
-        toCPhysicalDevice(pdev),
-        &selected_profile,
-        &supported,
-    ));
+// Extensions and features required but not included in VP_LUNARG_minimum_requirements_1_3
+pub const EngineRequirements = struct {
+    extra_device_extensions: []const EngineExtension,
+    extra_features: []const EngineFeature,
+};
 
-    return supported == vp.VK_TRUE;
+pub fn supportedProfile(
+    instance: *const vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    requirements: *const EngineRequirements,
+    allocator: std.mem.Allocator,
+) !?EngineProfile {
+    const candidates = [_]EngineProfile{
+        .roadmap2026,
+        .roadmap2024,
+        .minimal,
+    };
+
+    for (candidates) |candidate| {
+        var props = vp.VpProfileProperties{};
+        const name = switch (candidate) {
+            .minimal => blk: {
+                props.specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION;
+                break :blk std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
+            },
+            .roadmap2024 => blk: {
+                props.specVersion = vp.VP_KHR_ROADMAP_2024_SPEC_VERSION;
+                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2024_NAME, 0);
+            },
+            .roadmap2026 => blk: {
+                props.specVersion = vp.VP_KHR_ROADMAP_2026_SPEC_VERSION;
+                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2026_NAME, 0);
+            },
+        };
+        @memmove(props.profileName[0..name.len], name);
+
+        var supported: vp.VkBool32 = vp.VK_FALSE;
+        try check(vp.vpGetPhysicalDeviceProfileSupport(
+            toCInstance(instance.handle),
+            toCPhysicalDevice(pdev),
+            &props,
+            &supported,
+        ));
+
+        if (supported == vp.VK_TRUE and
+            try hasExtraDeviceExtensions(instance, pdev, candidate, requirements.extra_device_extensions, allocator) and
+            hasExtraFeatures(instance, pdev, candidate, requirements.extra_features))
+        {
+            return candidate;
+        }
+    }
+
+    return null;
+}
+
+fn hasExtraDeviceExtensions(
+    instance: *const vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    engine_profile: EngineProfile,
+    extra_extensions: []const EngineExtension,
+    allocator: std.mem.Allocator,
+) !bool {
+    const available = try instance.enumerateDeviceExtensionPropertiesAlloc(pdev, null, allocator);
+    defer allocator.free(available);
+
+    for (extra_extensions) |extension| {
+        if (profileProvidesExtension(engine_profile, extension)) continue;
+
+        const required_name = std.mem.span(extensionName(extension));
+        var found = false;
+        for (available) |available_extension| {
+            const available_name = std.mem.sliceTo(&available_extension.extension_name, 0);
+            if (std.mem.eql(u8, required_name, available_name)) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) return false;
+    }
+
+    return true;
+}
+
+fn hasExtraFeatures(
+    instance: *const vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    engine_profile: EngineProfile,
+    extra_features: []const EngineFeature,
+) bool {
+    var features_1_1 = vk.PhysicalDeviceVulkan11Features{};
+    var features = vk.PhysicalDeviceFeatures2{
+        .features = .{},
+        .p_next = &features_1_1,
+    };
+    instance.getPhysicalDeviceFeatures2(pdev, &features);
+
+    for (extra_features) |feature| {
+        if (profileProvidesFeature(engine_profile, feature)) continue;
+
+        switch (feature) {
+            .shader_draw_parameters => {
+                if (features_1_1.shader_draw_parameters == .false) return false;
+            },
+        }
+    }
+
+    return true;
+}
+
+// For each extra feature added mark the profile that provides it
+fn profileProvidesFeature(engine_profile: EngineProfile, feature: EngineFeature) bool {
+    return switch (feature) {
+        .shader_draw_parameters => switch (engine_profile) {
+            .minimal => false,
+            .roadmap2024, .roadmap2026 => true,
+        },
+    };
+}
+
+fn profileProvidesExtension(engine_profile: EngineProfile, extension: EngineExtension) bool {
+    return switch (extension) {
+        .swapchain => switch (engine_profile) {
+            .minimal, .roadmap2024 => false,
+            .roadmap2026 => true,
+        },
+    };
+}
+
+fn extensionName(extension: EngineExtension) [*:0]const u8 {
+    return switch (extension) {
+        .swapchain => vk.extensions.khr_swapchain.name,
+    };
 }
 
 pub fn createDevice(
@@ -108,7 +202,7 @@ fn profile() vp.VpProfileProperties {
         .specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION,
     };
     const name = std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
-    std.mem.copyForwards(u8, props.profileName[0..name.len], name);
+    @memmove(props.profileName[0..name.len], name);
     return props;
 }
 

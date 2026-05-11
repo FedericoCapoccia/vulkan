@@ -5,6 +5,14 @@ const vk = @import("vulkan");
 
 const vkh = @import("vk.zig");
 
+const extra_device_extensions = [_]vkh.EngineExtension{
+    .swapchain,
+};
+
+const extra_features = [_]vkh.EngineFeature{
+    .shader_draw_parameters,
+};
+
 pub const VulkanContext = struct {
     instance_handle: vk.Instance,
     instance_wrapper: vk.InstanceWrapper,
@@ -33,21 +41,12 @@ pub const VulkanContext = struct {
             try instance_extensions.append(info.allocator, vk.extensions.ext_debug_utils.name);
         }
 
-        const device_extensions = [_][*:0]const u8{
-            vk.extensions.khr_swapchain.name,
+        const requirements = vkh.EngineRequirements{
+            .extra_device_extensions = extra_device_extensions[0..],
+            .extra_features = extra_features[0..],
         };
 
-        const requirements = try vkh.EngineRequirements.init(
-            info.allocator,
-            instance_extensions.items,
-            device_extensions[0..],
-            &.{
-                .shader_draw_parameters,
-            },
-        );
-        errdefer requirements.deinit();
-
-        const instance_bundle = try vkh.createInstance(&base, &requirements, info.log_messages, info.allocator);
+        const instance_bundle = try vkh.createInstance(&base, instance_extensions.items, info.log_messages, info.allocator);
         const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
         errdefer {
             if (instance_bundle.debug_messenger) |messenger| {
@@ -63,6 +62,7 @@ pub const VulkanContext = struct {
         const pdev_bundle = try vkh.selectPhysicalDevice(
             &instance_proxy,
             surface,
+            &requirements,
             info.allocator,
         );
 
@@ -74,13 +74,11 @@ pub const VulkanContext = struct {
             .pdev = pdev_bundle.handle,
             .queue_families = pdev_bundle.queue_families,
             .requirements = requirements,
-            .profile = .minimal, // TODO: fetch from selected pdev
+            .profile = pdev_bundle.profile,
         };
     }
 
     pub fn destroy(self: *const VulkanContext) void {
-        self.requirements.deinit();
-
         const instance_proxy = self.instance();
 
         instance_proxy.destroySurfaceKHR(self.surface, null);

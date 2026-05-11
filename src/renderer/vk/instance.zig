@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
-const profile = @import("profile.zig");
 
 pub const Instance = struct {
     handle: vk.Instance,
@@ -11,7 +10,7 @@ pub const Instance = struct {
 
 pub fn create(
     base: *const vk.BaseWrapper,
-    requirements: *const profile.EngineRequirements,
+    instance_extensions: []const [*:0]const u8,
     log_messages: bool,
     allocator: std.mem.Allocator,
 ) !Instance {
@@ -25,7 +24,7 @@ pub fn create(
 
     const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
     defer allocator.free(available_extensions);
-    try checkExtensions(requirements.instance_extensions, available_extensions);
+    try checkExtensions(instance_extensions, available_extensions);
 
     var messenger_cinfo = messengerCreateInfo();
 
@@ -39,8 +38,8 @@ pub fn create(
 
     const cinfo = vk.InstanceCreateInfo{
         .p_application_info = &app_info,
-        .enabled_extension_count = @intCast(requirements.instance_extensions.len),
-        .pp_enabled_extension_names = if (requirements.instance_extensions.len == 0) null else requirements.instance_extensions.ptr,
+        .enabled_extension_count = @intCast(instance_extensions.len),
+        .pp_enabled_extension_names = if (instance_extensions.len == 0) null else instance_extensions.ptr,
         .p_next = if (log_messages) &messenger_cinfo else null,
     };
 

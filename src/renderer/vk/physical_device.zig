@@ -6,6 +6,7 @@ const profile = @import("profile.zig");
 pub const PhysicalDevice = struct {
     handle: vk.PhysicalDevice,
     queue_families: QueueFamilies,
+    profile: profile.EngineProfile,
 };
 
 pub const QueueFamilies = struct {
@@ -17,6 +18,7 @@ pub const QueueFamilies = struct {
 pub fn select(
     instance: *const vk.InstanceProxy,
     surface: vk.SurfaceKHR,
+    requirements: *const profile.EngineRequirements,
     allocator: std.mem.Allocator,
 ) !PhysicalDevice {
     const devices = try instance.enumeratePhysicalDevicesAlloc(allocator);
@@ -30,14 +32,14 @@ pub fn select(
         instance.getPhysicalDeviceProperties2(device, &props);
 
         if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
-
-        if (!try profile.physicalDeviceSupported(instance.handle, device)) continue;
-
         const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
+
+        const pf = try profile.supportedProfile(instance, device, requirements, allocator) orelse continue;
 
         const candidate = PhysicalDevice{
             .handle = device,
             .queue_families = queue_families,
+            .profile = pf,
         };
 
         if (props.properties.device_type == .discrete_gpu) {
@@ -53,12 +55,12 @@ pub fn select(
     }
 
     const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
-    logSelectedDevice(selected_props, physical_device.queue_families);
+    logSelectedDevice(selected_props, physical_device.queue_families, physical_device.profile);
 
     return physical_device;
 }
 
-fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFamilies) void {
+fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFamilies, engine_profile: profile.EngineProfile) void {
     const device_name = std.mem.sliceTo(&props.device_name, 0);
     const api_version: vk.Version = @bitCast(props.api_version);
 
@@ -67,6 +69,7 @@ fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFa
     std.log.info("\tType: {s}", .{@tagName(props.device_type)});
     std.log.info("\tVulkan API: {}.{}.{}", .{ api_version.major, api_version.minor, api_version.patch });
     std.log.info("\tGraphics queue family: {}", .{queue_families.graphics});
+    std.log.info("\tEngine profile: {s}", .{@tagName(engine_profile)});
 }
 
 fn findQueueFamilies(
