@@ -39,14 +39,14 @@ pub fn main(init: std.process.Init) !void {
     const triangle_shader = try createShaderModule(
         init.io,
         init.gpa,
-        &device,
+        device,
         shader_dir,
         "triangle.spv",
     );
     defer device.destroyShaderModule(triangle_shader, null);
 
     const pipeline = try GraphicPipeline.create(
-        &device,
+        device,
         triangle_shader,
         renderer.swapchain.extent,
         renderer.swapchain.format.format,
@@ -234,7 +234,7 @@ fn recordCmd(
 fn createShaderModule(
     io: std.Io,
     allocator: std.mem.Allocator,
-    device: *const vk.DeviceProxy,
+    device: vk.DeviceProxy,
     shader_dir: []const u8,
     filename: []const u8,
 ) !vk.ShaderModule {

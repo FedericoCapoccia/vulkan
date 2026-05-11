@@ -26,7 +26,7 @@ pub const EngineRequirements = struct {
 const max_extra_device_extensions = @typeInfo(EngineExtension).@"enum".fields.len;
 
 pub fn supportedProfile(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     requirements: *const EngineRequirements,
     allocator: std.mem.Allocator,
@@ -60,7 +60,7 @@ pub fn supportedProfile(
 }
 
 fn hasExtraDeviceExtensions(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     engine_profile: EngineProfile,
     extra_extensions: []const EngineExtension,
@@ -89,7 +89,7 @@ fn hasExtraDeviceExtensions(
 }
 
 fn hasExtraFeatures(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     engine_profile: EngineProfile,
     extra_features: []const EngineFeature,

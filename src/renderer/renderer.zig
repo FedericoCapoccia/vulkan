@@ -16,7 +16,7 @@ pub const Renderer = struct {
         const instance = ctx.instance();
 
         const device_bundle = try vkh.createDevice(
-            &instance,
+            instance,
             ctx.pdev,
             ctx.queue_families,
             ctx.profile,
@@ -28,14 +28,14 @@ pub const Renderer = struct {
         const gq_handle = device_proxy.getDeviceQueue(ctx.queue_families.graphics, 0);
 
         const swapchain = try vkh.Swapchain.create(&.{
-            .instance = &instance,
+            .instance = instance,
             .pdev = ctx.pdev,
             .surface = ctx.surface,
-            .device = &device_proxy,
+            .device = device_proxy,
             .window = window,
             .allocator = allocator,
         });
-        errdefer swapchain.destroy();
+        errdefer swapchain.destroy(device_proxy);
 
         return Renderer{
             .device_handle = device_bundle.handle,
@@ -48,7 +48,7 @@ pub const Renderer = struct {
     pub fn destroy(self: *const Renderer) void {
         const device_proxy = self.device();
         device_proxy.deviceWaitIdle() catch {};
-        self.swapchain.destroy(&device_proxy);
+        self.swapchain.destroy(device_proxy);
         device_proxy.destroyDevice(null);
     }
 

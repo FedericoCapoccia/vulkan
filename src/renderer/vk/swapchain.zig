@@ -13,12 +13,13 @@ pub const Swapchain = struct {
     views: []vk.ImageView,
 
     pub const CreateInfo = struct {
-        instance: *const vk.InstanceProxy,
+        instance: vk.InstanceProxy,
         pdev: vk.PhysicalDevice,
         surface: vk.SurfaceKHR,
-        device: *const vk.DeviceProxy,
+        device: vk.DeviceProxy,
         window: *glfw.Window,
         allocator: std.mem.Allocator,
+        old_swapchain: vk.SwapchainKHR = .null_handle,
     };
 
     pub fn create(info: *const CreateInfo) !Swapchain {
@@ -41,7 +42,7 @@ pub const Swapchain = struct {
             .composite_alpha = .{ .opaque_bit_khr = true },
             .present_mode = pmode,
             .clipped = .true,
-            .old_swapchain = .null_handle,
+            .old_swapchain = info.old_swapchain,
         };
 
         const handle = try info.device.createSwapchainKHR(&cinfo, null);
@@ -76,7 +77,7 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn destroy(self: *const Swapchain, device: *const vk.DeviceProxy) void {
+    pub fn destroy(self: *const Swapchain, device: vk.DeviceProxy) void {
         for (self.views) |view| {
             device.destroyImageView(view, null);
         }
@@ -150,7 +151,7 @@ fn getExtent(window: *glfw.Window, capabilities: *const vk.SurfaceCapabilitiesKH
     };
 }
 
-fn createImageView(device: *const vk.DeviceProxy, image: vk.Image, format: vk.Format) !vk.ImageView {
+fn createImageView(device: vk.DeviceProxy, image: vk.Image, format: vk.Format) !vk.ImageView {
     var cinfo = vk.ImageViewCreateInfo{
         .image = image,
         .view_type = .@"2d",

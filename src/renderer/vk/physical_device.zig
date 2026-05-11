@@ -16,7 +16,7 @@ pub const QueueFamilies = struct {
 };
 
 pub fn select(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     surface: vk.SurfaceKHR,
     requirements: *const profile.EngineRequirements,
     allocator: std.mem.Allocator,
@@ -73,7 +73,7 @@ fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFa
 }
 
 fn findQueueFamilies(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     device: vk.PhysicalDevice,
     surface: vk.SurfaceKHR,
     allocator: std.mem.Allocator,

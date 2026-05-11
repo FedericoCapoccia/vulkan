@@ -60,7 +60,7 @@ pub const VulkanContext = struct {
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
         const pdev_bundle = try vkh.selectPhysicalDevice(
-            &instance_proxy,
+            instance_proxy,
             surface,
             &requirements,
             info.allocator,

@@ -5,7 +5,7 @@ pub const GraphicPipeline = struct {
     layout: vk.PipelineLayout,
 
     pub fn create(
-        device: *const vk.DeviceProxy,
+        device: vk.DeviceProxy,
         shader: vk.ShaderModule,
         swap_extent: vk.Extent2D,
         swap_format: vk.Format,

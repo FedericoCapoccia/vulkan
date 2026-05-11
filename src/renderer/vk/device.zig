@@ -10,7 +10,7 @@ pub const Device = struct {
 };
 
 pub fn create(
-    instance: *const vk.InstanceProxy,
+    instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     queue_families: QueueFamilies,
     engine_profile: profile.EngineProfile,
