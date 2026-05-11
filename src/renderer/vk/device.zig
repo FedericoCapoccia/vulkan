@@ -13,12 +13,14 @@ pub fn create(
     instance: *const vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     queue_families: QueueFamilies,
-    extensions: []const [*:0]const u8,
+    engine_profile: profile.EngineProfile,
+    requirements: *const profile.EngineRequirements,
 ) !Device {
     const handle = try profile.createDevice(
         pdev,
         queue_families.graphics,
-        extensions,
+        engine_profile,
+        requirements,
     );
     const wrapper = vk.DeviceWrapper.load(handle, instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
 

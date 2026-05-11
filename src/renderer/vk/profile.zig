@@ -23,6 +23,8 @@ pub const EngineRequirements = struct {
     extra_features: []const EngineFeature,
 };
 
+const max_extra_device_extensions = @typeInfo(EngineExtension).@"enum".fields.len;
+
 pub fn supportedProfile(
     instance: *const vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
@@ -36,22 +38,7 @@ pub fn supportedProfile(
     };
 
     for (candidates) |candidate| {
-        var props = vp.VpProfileProperties{};
-        const name = switch (candidate) {
-            .minimal => blk: {
-                props.specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
-            },
-            .roadmap2024 => blk: {
-                props.specVersion = vp.VP_KHR_ROADMAP_2024_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2024_NAME, 0);
-            },
-            .roadmap2026 => blk: {
-                props.specVersion = vp.VP_KHR_ROADMAP_2026_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2026_NAME, 0);
-            },
-        };
-        @memmove(props.profileName[0..name.len], name);
+        var props = profileProperties(candidate);
 
         var supported: vp.VkBool32 = vp.VK_FALSE;
         try check(vp.vpGetPhysicalDeviceProfileSupport(
@@ -155,12 +142,27 @@ fn extensionName(extension: EngineExtension) [*:0]const u8 {
 pub fn createDevice(
     pdev: vk.PhysicalDevice,
     queue_family: u32,
-    extensions: []const [*:0]const u8,
+    engine_profile: EngineProfile,
+    requirements: *const EngineRequirements,
 ) !vk.Device {
     var vulkan_11_features = vp.VkPhysicalDeviceVulkan11Features{
         .sType = vp.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-        .shaderDrawParameters = vp.VK_TRUE,
     };
+
+    var p_next: ?*anyopaque = null;
+    if (requiresManualFeature(engine_profile, requirements.extra_features, .shader_draw_parameters)) {
+        vulkan_11_features.shaderDrawParameters = vp.VK_TRUE;
+        p_next = &vulkan_11_features;
+    }
+
+    var extension_storage: [max_extra_device_extensions][*:0]const u8 = undefined;
+    var extension_count: usize = 0;
+    for (requirements.extra_device_extensions) |extension| {
+        if (profileProvidesExtension(engine_profile, extension)) continue;
+        extension_storage[extension_count] = extensionName(extension);
+        extension_count += 1;
+    }
+    const extensions = extension_storage[0..extension_count];
 
     const queue_priority = [_]f32{1.0};
     const queue_cinfo = [_]vp.VkDeviceQueueCreateInfo{.{
@@ -172,14 +174,14 @@ pub fn createDevice(
 
     const device_cinfo = vp.VkDeviceCreateInfo{
         .sType = vp.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = &vulkan_11_features,
+        .pNext = p_next,
         .queueCreateInfoCount = queue_cinfo.len,
         .pQueueCreateInfos = &queue_cinfo,
         .enabledExtensionCount = @intCast(extensions.len),
         .ppEnabledExtensionNames = if (extensions.len == 0) null else @ptrCast(extensions.ptr),
     };
 
-    var selected_profile = profile();
+    var selected_profile = profileProperties(engine_profile);
     const profile_cinfo = vp.VpDeviceCreateInfo{
         .pCreateInfo = &device_cinfo,
         .enabledFullProfileCount = 1,
@@ -197,13 +199,34 @@ pub fn createDevice(
     return fromCDevice(device);
 }
 
-fn profile() vp.VpProfileProperties {
-    var props = vp.VpProfileProperties{
-        .specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION,
+fn profileProperties(engine_profile: EngineProfile) vp.VpProfileProperties {
+    var props = vp.VpProfileProperties{};
+    const name = switch (engine_profile) {
+        .minimal => blk: {
+            props.specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION;
+            break :blk std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
+        },
+        .roadmap2024 => blk: {
+            props.specVersion = vp.VP_KHR_ROADMAP_2024_SPEC_VERSION;
+            break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2024_NAME, 0);
+        },
+        .roadmap2026 => blk: {
+            props.specVersion = vp.VP_KHR_ROADMAP_2026_SPEC_VERSION;
+            break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2026_NAME, 0);
+        },
     };
-    const name = std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
     @memmove(props.profileName[0..name.len], name);
     return props;
+}
+
+fn requiresManualFeature(engine_profile: EngineProfile, extra_features: []const EngineFeature, feature: EngineFeature) bool {
+    if (profileProvidesFeature(engine_profile, feature)) return false;
+
+    for (extra_features) |extra_feature| {
+        if (extra_feature == feature) return true;
+    }
+
+    return false;
 }
 
 fn check(result: vp.VkResult) !void {

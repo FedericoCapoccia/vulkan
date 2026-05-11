@@ -13,15 +13,12 @@ pub const Renderer = struct {
     pub fn init(ctx: *const VulkanContext) !Renderer {
         const instance = ctx.instance();
 
-        const extensions = [_][*:0]const u8{
-            vk.extensions.khr_swapchain.name,
-        };
-
         const device_bundle = try vkh.createDevice(
             &instance,
             ctx.pdev,
             ctx.queue_families,
-            &extensions,
+            ctx.profile,
+            &ctx.requirements,
         );
         const device_proxy = vk.DeviceProxy.init(device_bundle.handle, &device_bundle.wrapper);
         errdefer device_proxy.destroyDevice(null);
