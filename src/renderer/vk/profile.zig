@@ -145,6 +145,9 @@ pub fn createDevice(
     engine_profile: EngineProfile,
     requirements: *const EngineRequirements,
 ) !vk.Device {
+    std.log.info("Creating logical device", .{});
+    std.log.info("\tEngine profile: {s}", .{@tagName(engine_profile)});
+
     var vulkan_11_features = vp.VkPhysicalDeviceVulkan11Features{
         .sType = vp.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
     };
@@ -153,6 +156,7 @@ pub fn createDevice(
     if (requiresManualFeature(engine_profile, requirements.extra_features, .shader_draw_parameters)) {
         vulkan_11_features.shaderDrawParameters = vp.VK_TRUE;
         p_next = &vulkan_11_features;
+        std.log.info("\t[EXTRA FEATURE] shader_draw_parameters", .{});
     }
 
     var extension_storage: [max_extra_device_extensions][*:0]const u8 = undefined;
@@ -161,6 +165,7 @@ pub fn createDevice(
         if (profileProvidesExtension(engine_profile, extension)) continue;
         extension_storage[extension_count] = extensionName(extension);
         extension_count += 1;
+        std.log.info("\t[EXTRA EXTENSION] {s}", .{std.mem.span(extensionName(extension))});
     }
     const extensions = extension_storage[0..extension_count];
 
