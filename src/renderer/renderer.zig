@@ -12,30 +12,41 @@ pub const Renderer = struct {
     graphics_queue_handle: vk.Queue,
     swapchain: vkh.Swapchain,
 
-    pub fn init(ctx: *const VulkanContext, window: *glfw.Window, allocator: std.mem.Allocator) !Renderer {
-        const instance = ctx.instance();
+    pub const InitInfo = struct {
+        ctx: *const VulkanContext,
+        window: *glfw.Window,
+        shaders_dir: std.Io.Dir,
+        io: std.Io,
+        allocator: std.mem.Allocator,
+    };
+
+    pub fn init(info: InitInfo) !Renderer {
+        const instance = info.ctx.instance();
 
         const device_bundle = try vkh.createDevice(
             instance,
-            ctx.pdev,
-            ctx.queue_families,
-            ctx.profile,
-            &ctx.requirements,
+            info.ctx.pdev,
+            info.ctx.queue_families,
+            info.ctx.profile,
+            &info.ctx.requirements,
         );
         const device_proxy = vk.DeviceProxy.init(device_bundle.handle, &device_bundle.wrapper);
         errdefer device_proxy.destroyDevice(null);
 
-        const gq_handle = device_proxy.getDeviceQueue(ctx.queue_families.graphics, 0);
+        const gq_handle = device_proxy.getDeviceQueue(info.ctx.queue_families.graphics, 0);
 
         const swapchain = try vkh.Swapchain.create(&.{
             .instance = instance,
-            .pdev = ctx.pdev,
-            .surface = ctx.surface,
+            .pdev = info.ctx.pdev,
+            .surface = info.ctx.surface,
             .device = device_proxy,
-            .window = window,
-            .allocator = allocator,
+            .window = info.window,
+            .allocator = info.allocator,
         });
         errdefer swapchain.destroy(device_proxy);
+
+        const triangle_shader = try loadShader(info.io, info.allocator, device_proxy, info.shaders_dir, "triangle.spv");
+        defer device_proxy.destroyShaderModule(triangle_shader, null);
 
         return Renderer{
             .device_handle = device_bundle.handle,
@@ -63,3 +74,32 @@ pub const Renderer = struct {
         return vk.QueueProxy.init(self.graphics_queue_handle, &self.device_wrapper);
     }
 };
+
+fn loadShader(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    device: vk.DeviceProxy,
+    dir: std.Io.Dir,
+    name: []const u8,
+) !vk.ShaderModule {
+    const code = try dir.readFileAllocOptions(
+        io,
+        name,
+        allocator,
+        .limited(1024 * 1024),
+        .of(u32),
+        null,
+    );
+    defer allocator.free(code);
+
+    if (code.len % @sizeOf(u32) != 0) {
+        return error.InvalidSpirVSize;
+    }
+
+    const cinfo = vk.ShaderModuleCreateInfo{
+        .code_size = code.len,
+        .p_code = std.mem.bytesAsSlice(u32, code).ptr,
+    };
+
+    return device.createShaderModule(&cinfo, null);
+}

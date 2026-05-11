@@ -24,23 +24,34 @@ pub fn main(init: std.process.Init) !void {
     });
     defer vk_context.destroy();
 
-    const renderer = try vkr.Renderer.init(&vk_context, window, init.gpa);
+    // TODO move them inside renderer initialization block after moving shader module and pipeline creation in renderer
+    const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
+    defer init.gpa.free(exe_dir);
+
+    const shaders_path = try std.Io.Dir.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
+    defer init.gpa.free(shaders_path);
+
+    const renderer = blk: {
+        const shaders_dir = try std.Io.Dir.openDirAbsolute(init.io, shaders_path, .{});
+        defer shaders_dir.close(init.io);
+        break :blk try vkr.Renderer.init(.{
+            .ctx = &vk_context,
+            .window = window,
+            .shaders_dir = shaders_dir,
+            .io = init.io,
+            .allocator = init.gpa,
+        });
+    };
     defer renderer.destroy();
 
     const device = renderer.device();
     const graphics_queue = renderer.graphicsQueue();
 
-    const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
-    defer init.gpa.free(exe_dir);
-
-    const shader_dir = try std.fs.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
-    defer init.gpa.free(shader_dir);
-
     const triangle_shader = try createShaderModule(
         init.io,
         init.gpa,
         device,
-        shader_dir,
+        shaders_path,
         "triangle.spv",
     );
     defer device.destroyShaderModule(triangle_shader, null);
