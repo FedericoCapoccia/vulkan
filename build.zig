@@ -12,7 +12,9 @@ pub fn build(b: *std.Build) void {
     const vulkan_headers = b.dependency("vulkan_headers", .{});
     const registry = vulkan_headers.path("registry/vk.xml");
 
-    const vulkan_zig = addVulkanBindings(b, target, optimize, registry);
+    const vulkan_zig = b.dependency("vulkan", .{
+        .registry = registry,
+    }).module("vulkan-zig");
     const profiles = addVulkanProfiles(.{
         .b = b,
         .python = python,
@@ -73,29 +75,6 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-}
-
-fn addVulkanBindings(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    registry: std.Build.LazyPath,
-) *std.Build.Module {
-    const vk_gen = b.dependency("vulkan", .{}).artifact("vulkan-zig-generator");
-    const cmd = b.addRunArtifact(vk_gen);
-    cmd.addFileArg(registry);
-    const generated = cmd.addOutputFileArg("vk.zig");
-
-    const generate_step = b.step("generate", "Update checked-in Vulkan bindings");
-    const update_vk = b.addUpdateSourceFiles();
-    update_vk.addCopyFileToSource(generated, "src/vulkan.zig");
-    generate_step.dependOn(&update_vk.step);
-
-    return b.addModule("vulkan-zig", .{
-        .root_source_file = b.path("src/vulkan.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
 }
 
 const VulkanProfiles = struct {
