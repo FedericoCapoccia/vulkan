@@ -28,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
     defer renderer.destroy();
 
     const device = renderer.device();
-    const graphics_queue = renderer.graphics_queue();
+    const graphics_queue = renderer.graphicsQueue();
 
     const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
     defer init.gpa.free(exe_dir);

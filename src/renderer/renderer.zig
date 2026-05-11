@@ -53,13 +53,13 @@ pub const Renderer = struct {
     }
 
     pub fn drawFrame() void {}
-    pub fn onResize() void {}
+    pub fn recreateSwapchain() void {}
 
     pub fn device(self: *const Renderer) vk.DeviceProxy {
         return vk.DeviceProxy.init(self.device_handle, &self.device_wrapper);
     }
 
-    pub fn graphics_queue(self: *const Renderer) vk.QueueProxy {
+    pub fn graphicsQueue(self: *const Renderer) vk.QueueProxy {
         return vk.QueueProxy.init(self.graphics_queue_handle, &self.device_wrapper);
     }
 };

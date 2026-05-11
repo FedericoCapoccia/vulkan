@@ -24,10 +24,10 @@ pub const Swapchain = struct {
 
     pub fn create(info: *const CreateInfo) !Swapchain {
         const capabilities = try info.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(info.pdev, info.surface);
-        const format = try getFormat(info);
-        const pmode = try getPresentMode(info);
-        const min_image_count = getMinImageCount(&capabilities);
-        const extent = getExtent(info.window, &capabilities);
+        const format = try selectFormat(info);
+        const pmode = try selectPresentMode(info);
+        const min_image_count = chooseImageCount(&capabilities);
+        const extent = chooseExtent(info.window, &capabilities);
 
         const cinfo = vk.SwapchainCreateInfoKHR{
             .surface = info.surface,
@@ -87,7 +87,7 @@ pub const Swapchain = struct {
     }
 };
 
-fn getFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
+fn selectFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
     const formats = try info.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(info.pdev, info.surface, info.allocator);
     defer info.allocator.free(formats);
 
@@ -105,7 +105,7 @@ fn getFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
     return formats[0];
 }
 
-fn getPresentMode(info: *const Swapchain.CreateInfo) !vk.PresentModeKHR {
+fn selectPresentMode(info: *const Swapchain.CreateInfo) !vk.PresentModeKHR {
     const modes = try info.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(info.pdev, info.surface, info.allocator);
     defer info.allocator.free(modes);
 
@@ -123,7 +123,7 @@ fn getPresentMode(info: *const Swapchain.CreateInfo) !vk.PresentModeKHR {
     return .fifo_khr;
 }
 
-fn getMinImageCount(capabilities: *const vk.SurfaceCapabilitiesKHR) u32 {
+fn chooseImageCount(capabilities: *const vk.SurfaceCapabilitiesKHR) u32 {
     var count: u32 = @max(3, capabilities.min_image_count);
     if (capabilities.max_image_count > 0 and capabilities.max_image_count < count) {
         count = capabilities.max_image_count;
@@ -131,7 +131,7 @@ fn getMinImageCount(capabilities: *const vk.SurfaceCapabilitiesKHR) u32 {
     return count;
 }
 
-fn getExtent(window: *glfw.Window, capabilities: *const vk.SurfaceCapabilitiesKHR) vk.Extent2D {
+fn chooseExtent(window: *glfw.Window, capabilities: *const vk.SurfaceCapabilitiesKHR) vk.Extent2D {
     if (capabilities.current_extent.width != std.math.maxInt(u32)) {
         return capabilities.current_extent;
     }
