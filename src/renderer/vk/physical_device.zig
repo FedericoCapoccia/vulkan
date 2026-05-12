@@ -82,7 +82,22 @@ fn findQueueFamilies(
     // allocates an uninitialized []QueueFamilyProperties2 and passes it to Vulkan.
     // The driver reads s_type/p_next before writing queue_family_properties, so each
     // element must be initialized first. Without this, RADV crashed in
-    // libvulkan_radeon.so with a general protection exception.
+    // libvulkan_radeon.so with a general protection exception. If validation layers are enabled this is logged
+    // error: Vulkan [VALIDATION]: {
+    //          "Severity" : "Error",
+    //          "VUID" : "VUID-VkQueueFamilyProperties2-sType-sType",
+    //          "Objects" : [
+    //            {"type" : "VkPhysicalDevice", "handle" : "0x26a42400", "name" : ""}
+    //          ],
+    //          "MessageID" : "0x3feff2ec",
+    //          "Function" : "vkGetPhysicalDeviceQueueFamilyProperties2",
+    //          "Location" : "pQueueFamilyProperties[0].sType",
+    //          "MainMessage" : "must be VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2",
+    //          "DebugRegion" : "",
+    //          "SpecText" : "sType must be VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2",
+    //          "SpecUrl" : "https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VUID-VkQueueFamilyProperties2-sType-sType"
+    //        }
+    // const queue_families = try instance.getPhysicalDeviceQueueFamilyProperties2Alloc(device, allocator);
     var count: u32 = 0;
     instance.getPhysicalDeviceQueueFamilyProperties2(device, &count, null);
     const queue_families = try allocator.alloc(vk.QueueFamilyProperties2, count);
