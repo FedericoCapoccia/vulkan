@@ -58,21 +58,24 @@ const FrameData = struct {
 };
 
 pub const Renderer = struct {
-    // Owns Vulkan handles; do not copy after init.
+    ctx: *const VulkanContext,
+    io: std.Io,
     allocator: std.mem.Allocator,
     device_handle: vk.Device,
     device_wrapper: vk.DeviceWrapper,
     graphics_queue_handle: vk.Queue,
     swapchain: vkh.Swapchain,
+    shaders_dir_path: []const u8,
     graphics_pipeline: vkh.GraphicsPipeline,
     frames: [max_frames_in_flight]FrameData,
     render_finished: []vk.Semaphore,
     current_frame: usize = 0,
+    framebuffer_resized: bool = false,
 
     pub const InitInfo = struct {
         ctx: *const VulkanContext,
         window: *glfw.Window,
-        shaders_dir: std.Io.Dir,
+        shaders_dir_path: []const u8,
         io: std.Io,
         allocator: std.mem.Allocator,
     };
@@ -102,7 +105,12 @@ pub const Renderer = struct {
         });
         errdefer swapchain.destroy(device_proxy);
 
-        const triangle_shader = try loadShader(info.io, info.allocator, device_proxy, info.shaders_dir, "triangle.spv");
+        const shaders_dir_path = try info.allocator.dupe(u8, info.shaders_dir_path);
+        errdefer info.allocator.free(shaders_dir_path);
+        const shaders_dir = try std.Io.Dir.openDirAbsolute(info.io, shaders_dir_path, .{});
+        defer shaders_dir.close(info.io);
+
+        const triangle_shader = try loadShader(info.io, info.allocator, device_proxy, shaders_dir, "triangle.spv");
         defer device_proxy.destroyShaderModule(triangle_shader, null);
 
         const gp = try vkh.GraphicsPipeline.create(.{
@@ -128,26 +136,17 @@ pub const Renderer = struct {
             frame_count += 1;
         }
 
-        const render_finished = try info.allocator.alloc(vk.Semaphore, swapchain.images.len);
-        var render_finished_count: usize = 0;
-        errdefer {
-            for (render_finished[0..render_finished_count]) |semaphore| {
-                device_proxy.destroySemaphore(semaphore, null);
-            }
-            info.allocator.free(render_finished);
-        }
-
-        for (render_finished) |*semaphore| {
-            semaphore.* = try device_proxy.createSemaphore(&.{}, null);
-            render_finished_count += 1;
-        }
+        const render_finished = try createRenderSemaphores(device_proxy, swapchain.images.len, info.allocator);
 
         return Renderer{
+            .ctx = info.ctx,
+            .io = info.io,
             .allocator = info.allocator,
             .device_handle = device_bundle.handle,
             .device_wrapper = device_bundle.wrapper,
             .graphics_queue_handle = gq_handle,
             .swapchain = swapchain,
+            .shaders_dir_path = shaders_dir_path,
             .graphics_pipeline = gp,
             .frames = frames,
             .render_finished = render_finished,
@@ -158,16 +157,15 @@ pub const Renderer = struct {
         const device_proxy = self.device();
         device_proxy.deviceWaitIdle() catch {};
 
-        for (self.render_finished) |semaphore| {
-            device_proxy.destroySemaphore(semaphore, null);
-        }
-        self.allocator.free(self.render_finished);
+        destroyRenderSemaphores(device_proxy, self.render_finished[0..], self.allocator);
 
         for (&self.frames) |*frame| {
             frame.destroy(device_proxy);
         }
 
         self.graphics_pipeline.destroy(device_proxy);
+        self.allocator.free(self.shaders_dir_path);
+
         self.swapchain.destroy(device_proxy);
         device_proxy.destroyDevice(null);
     }
@@ -180,7 +178,11 @@ pub const Renderer = struct {
         return vk.QueueProxy.init(self.graphics_queue_handle, &self.device_wrapper);
     }
 
-    pub fn drawFrame(self: *Renderer) !void {
+    pub fn requestResize(self: *Renderer) void {
+        self.framebuffer_resized = true;
+    }
+
+    pub fn drawFrame(self: *Renderer, window: *glfw.Window) !void {
         const dev = self.device();
         const graphics_queue = self.graphicsQueue();
         const frame = &self.frames[self.current_frame];
@@ -189,12 +191,20 @@ pub const Renderer = struct {
         const wait_result = try dev.waitForFences(fences[0..], .true, std.math.maxInt(u64));
         if (wait_result != .success) return error.WaitForFrameFenceFailed;
 
-        const acquire = try dev.acquireNextImageKHR(
+        const acquire = dev.acquireNextImageKHR(
             self.swapchain.handle,
             std.math.maxInt(u64),
             frame.image_available,
             .null_handle,
-        );
+        ) catch |err| switch (err) {
+            error.OutOfDateKHR => {
+                try self.recreateSwapchain(window);
+                return;
+            },
+            else => return err,
+        };
+
+        const should_recreate = self.framebuffer_resized or acquire.result == .suboptimal_khr;
 
         try dev.resetFences(fences[0..]);
         try dev.resetCommandPool(frame.command_pool, .{});
@@ -243,9 +253,24 @@ pub const Renderer = struct {
             .p_swapchains = present_swapchains[0..].ptr,
             .p_image_indices = present_image_indices[0..].ptr,
         };
-        const present_result = try graphics_queue.presentKHR(&present_info);
-        if (present_result != .success) return error.PresentFailed;
+
+        const present_result = graphics_queue.presentKHR(&present_info) catch |err| switch (err) {
+            error.OutOfDateKHR => {
+                try self.recreateSwapchain(window);
+                return;
+            },
+            else => return err,
+        };
+
+        if (present_result != .success and present_result != .suboptimal_khr) {
+            return error.PresentFailed;
+        }
+
         self.current_frame = (self.current_frame + 1) % self.frames.len;
+
+        if (present_result == .suboptimal_khr or should_recreate) {
+            try self.recreateSwapchain(window);
+        }
     }
 
     fn recordCommandBuffer(self: *Renderer, cmd: vk.CommandBufferProxy, image_index: u32) !void {
@@ -328,9 +353,67 @@ pub const Renderer = struct {
     }
 
     // Create new swapchain with old handle, if image format changes invalidate pipeline
-    pub fn recreateSwapchain(self: *Renderer, window: *glfw.Window) void {
-        _ = self;
-        _ = window;
+    // TODO: I still need to find a way to not depend on the window object
+    fn recreateSwapchain(self: *Renderer, window: *glfw.Window) !void {
+        const dev = self.device();
+
+        var fb_size = window.getFramebufferSize();
+        while (fb_size[0] == 0 or fb_size[1] == 0) {
+            glfw.waitEvents();
+            fb_size = window.getFramebufferSize();
+        }
+
+        try dev.deviceWaitIdle();
+
+        const old_swapchain = self.swapchain;
+        const old_pipeline = self.graphics_pipeline;
+        const old_render_finished = self.render_finished;
+
+        const new_swapchain = try vkh.Swapchain.create(&.{
+            .instance = self.ctx.instance(),
+            .pdev = self.ctx.pdev,
+            .surface = self.ctx.surface,
+            .device = dev,
+            .window = window,
+            .allocator = self.allocator,
+            .old_swapchain = old_swapchain.handle,
+        });
+        errdefer new_swapchain.destroy(dev);
+
+        const new_render_finished = try createRenderSemaphores(dev, new_swapchain.images.len, self.allocator);
+        errdefer destroyRenderSemaphores(dev, new_render_finished[0..], self.allocator);
+
+        const format_changed = new_swapchain.format.format != old_swapchain.format.format;
+        var new_pipeline: ?vkh.GraphicsPipeline = null;
+        errdefer if (new_pipeline) |pipeline| {
+            pipeline.destroy(dev);
+        };
+
+        if (format_changed) {
+            const shaders_dir = try std.Io.Dir.openDirAbsolute(self.io, self.shaders_dir_path, .{});
+            defer shaders_dir.close(self.io);
+            const triangle_shader = try loadShader(self.io, self.allocator, dev, shaders_dir, "triangle.spv");
+            defer dev.destroyShaderModule(triangle_shader, null);
+
+            new_pipeline = try vkh.GraphicsPipeline.create(.{
+                .device = dev,
+                .shader = triangle_shader,
+                .format = new_swapchain.format.format,
+            });
+        }
+
+        self.swapchain = new_swapchain;
+        self.render_finished = new_render_finished;
+        if (new_pipeline) |pipeline| {
+            self.graphics_pipeline = pipeline;
+        }
+        self.framebuffer_resized = false;
+
+        destroyRenderSemaphores(dev, old_render_finished[0..], self.allocator);
+        old_swapchain.destroy(dev);
+        if (format_changed) {
+            old_pipeline.destroy(dev);
+        }
     }
 };
 
@@ -362,6 +445,26 @@ fn loadShader(
     };
 
     return device.createShaderModule(&cinfo, null);
+}
+
+fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: std.mem.Allocator) ![]vk.Semaphore {
+    const semaphores = try allocator.alloc(vk.Semaphore, image_count);
+    var count: usize = 0;
+    errdefer destroyRenderSemaphores(dev, semaphores[0..count], allocator);
+
+    for (semaphores) |*semaphore| {
+        semaphore.* = try dev.createSemaphore(&.{}, null);
+        count += 1;
+    }
+
+    return semaphores;
+}
+
+fn destroyRenderSemaphores(dev: vk.DeviceProxy, semaphores: []vk.Semaphore, allocator: std.mem.Allocator) void {
+    for (semaphores) |semaphore| {
+        dev.destroySemaphore(semaphore, null);
+    }
+    allocator.free(semaphores);
 }
 
 fn transitionImageLayout(

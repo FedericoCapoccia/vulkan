@@ -20,7 +20,6 @@ pub const VulkanContext = struct {
     surface: vk.SurfaceKHR,
     pdev: vk.PhysicalDevice,
     queue_families: vkh.QueueFamilies,
-
     profile: vkh.EngineProfile,
     requirements: vkh.EngineRequirements,
 
