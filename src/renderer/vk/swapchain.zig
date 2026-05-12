@@ -23,7 +23,7 @@ pub const Swapchain = struct {
     };
 
     pub fn create(info: *const CreateInfo) !Swapchain {
-        waitForDrawableFramebuffer(info.window);
+        try waitForDrawableFramebuffer(info.window);
 
         const capabilities = try info.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(info.pdev, info.surface);
         const format = try selectFormat(info);
@@ -89,9 +89,10 @@ pub const Swapchain = struct {
     }
 };
 
-fn waitForDrawableFramebuffer(window: *glfw.Window) void {
+fn waitForDrawableFramebuffer(window: *glfw.Window) !void {
     var fb_size = window.getFramebufferSize();
     while (fb_size[0] == 0 or fb_size[1] == 0) {
+        if (window.shouldClose()) return error.WindowClosed;
         glfw.waitEvents();
         fb_size = window.getFramebufferSize();
     }

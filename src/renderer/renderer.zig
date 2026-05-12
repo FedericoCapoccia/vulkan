@@ -203,7 +203,10 @@ pub const Renderer = struct {
             .null_handle,
         ) catch |err| switch (err) {
             error.OutOfDateKHR => {
-                try self.recreateSwapchain(window);
+                self.recreateSwapchain(window) catch |recreate_err| switch (recreate_err) {
+                    error.WindowClosed => return,
+                    else => return recreate_err,
+                };
                 return;
             },
             else => return err,
@@ -261,7 +264,10 @@ pub const Renderer = struct {
 
         const present_result = graphics_queue.presentKHR(&present_info) catch |err| switch (err) {
             error.OutOfDateKHR => {
-                try self.recreateSwapchain(window);
+                self.recreateSwapchain(window) catch |recreate_err| switch (recreate_err) {
+                    error.WindowClosed => return,
+                    else => return recreate_err,
+                };
                 return;
             },
             else => return err,
@@ -274,7 +280,10 @@ pub const Renderer = struct {
         self.current_frame = (self.current_frame + 1) % self.frames.len;
 
         if (present_result == .suboptimal_khr or should_recreate) {
-            try self.recreateSwapchain(window);
+            self.recreateSwapchain(window) catch |err| switch (err) {
+                error.WindowClosed => return,
+                else => return err,
+            };
         }
     }
 
@@ -361,12 +370,6 @@ pub const Renderer = struct {
     // TODO: I still need to find a way to not depend on the window object
     fn recreateSwapchain(self: *Renderer, window: *glfw.Window) !void {
         const dev = self.device();
-
-        var fb_size = window.getFramebufferSize();
-        while (fb_size[0] == 0 or fb_size[1] == 0) {
-            glfw.waitEvents();
-            fb_size = window.getFramebufferSize();
-        }
 
         try dev.deviceWaitIdle();
 
