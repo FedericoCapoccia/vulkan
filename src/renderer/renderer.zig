@@ -217,7 +217,7 @@ pub const Renderer = struct {
 
         const signal_semaphores = [_]vk.SemaphoreSubmitInfo{.{
             .semaphore = render_finished,
-            .stage_mask = .{ .color_attachment_output_bit = true },
+            .stage_mask = .{ .all_commands_bit = true },
             .device_index = 0,
             .value = 0,
         }};
@@ -322,7 +322,7 @@ pub const Renderer = struct {
             .{ .color_attachment_write_bit = true },
             .{},
             .{ .color_attachment_output_bit = true },
-            .{ .bottom_of_pipe_bit = true },
+            .{},
         );
         try cmd.endCommandBuffer();
     }
