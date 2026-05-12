@@ -1,63 +1,55 @@
 const vk = @import("vulkan");
 
-pub const GraphicPipeline = struct {
+pub const GraphicsPipeline = struct {
     handle: vk.Pipeline,
     layout: vk.PipelineLayout,
 
-    pub fn create(
+    pub const CreateInfo = struct {
         device: vk.DeviceProxy,
         shader: vk.ShaderModule,
-        swap_extent: vk.Extent2D,
-        swap_format: vk.Format,
-    ) !GraphicPipeline {
-        const ss_cinfo = [_]vk.PipelineShaderStageCreateInfo{
+        extent: vk.Extent2D,
+        format: vk.Format,
+    };
+
+    pub fn create(info: CreateInfo) !GraphicsPipeline {
+        const stages = [_]vk.PipelineShaderStageCreateInfo{
             .{
                 .stage = .{ .vertex_bit = true },
-                .module = shader,
+                .module = info.shader,
                 .p_name = "vertMain",
             },
             .{
                 .stage = .{ .fragment_bit = true },
-                .module = shader,
+                .module = info.shader,
                 .p_name = "fragMain",
             },
         };
 
-        const dyn_state = [_]vk.DynamicState{
-            .viewport,
-            .scissor,
-        };
+        const vertex_input_state = vk.PipelineVertexInputStateCreateInfo{};
 
-        const ds_cinfo = vk.PipelineDynamicStateCreateInfo{
-            .dynamic_state_count = dyn_state.len,
-            .p_dynamic_states = dyn_state[0..].ptr,
-        };
-        const vi_cinfo = vk.PipelineVertexInputStateCreateInfo{};
-        const ass_cinfo = vk.PipelineInputAssemblyStateCreateInfo{
+        const input_assembly_state = vk.PipelineInputAssemblyStateCreateInfo{
             .topology = .triangle_list,
             .primitive_restart_enable = .false,
         };
 
-        const viewport = vk.Viewport{
+        const viewports = [_]vk.Viewport{.{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(swap_extent.width),
-            .height = @floatFromInt(swap_extent.height),
+            .width = @floatFromInt(info.extent.width),
+            .height = @floatFromInt(info.extent.height),
             .min_depth = 0.0,
             .max_depth = 1.0,
-        };
+        }};
 
-        const scissor = vk.Rect2D{
+        const scissors = [_]vk.Rect2D{.{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = swap_extent,
-        };
-        const viewports = [_]vk.Viewport{viewport};
-        const scissors = [_]vk.Rect2D{scissor};
+            .extent = info.extent,
+        }};
 
-        const vs_cinfo = vk.PipelineViewportStateCreateInfo{
-            .viewport_count = 1,
+        const viewport_state = vk.PipelineViewportStateCreateInfo{
+            .viewport_count = @intCast(viewports.len),
             .p_viewports = viewports[0..].ptr,
-            .scissor_count = 1,
+            .scissor_count = @intCast(scissors.len),
             .p_scissors = scissors[0..].ptr,
         };
 
@@ -82,7 +74,7 @@ pub const GraphicPipeline = struct {
             .alpha_to_one_enable = .false,
         };
 
-        const color_blend_attachment = vk.PipelineColorBlendAttachmentState{
+        const color_blend_attachments = [_]vk.PipelineColorBlendAttachmentState{.{
             .blend_enable = .false,
             .src_color_blend_factor = .one,
             .dst_color_blend_factor = .zero,
@@ -96,8 +88,7 @@ pub const GraphicPipeline = struct {
                 .b_bit = true,
                 .a_bit = true,
             },
-        };
-        const color_blend_attachments = [_]vk.PipelineColorBlendAttachmentState{color_blend_attachment};
+        }};
 
         const color_blending = vk.PipelineColorBlendStateCreateInfo{
             .logic_op_enable = .false,
@@ -107,56 +98,60 @@ pub const GraphicPipeline = struct {
             .blend_constants = .{ 0.0, 0.0, 0.0, 0.0 },
         };
 
-        const layout_cinfo = vk.PipelineLayoutCreateInfo{
-            .set_layout_count = 0,
-            .push_constant_range_count = 0,
+        const dynamic_states = [_]vk.DynamicState{
+            .viewport,
+            .scissor,
         };
 
-        const layout = try device.createPipelineLayout(&layout_cinfo, null);
-        errdefer device.destroyPipelineLayout(layout, null);
+        const dynamic_state_info = vk.PipelineDynamicStateCreateInfo{
+            .dynamic_state_count = @intCast(dynamic_states.len),
+            .p_dynamic_states = dynamic_states[0..].ptr,
+        };
+
+        const color_attachments = [_]vk.Format{info.format};
 
         const rendering_cinfo = vk.PipelineRenderingCreateInfo{
             .view_mask = 0,
-            .color_attachment_count = 1,
-            .p_color_attachment_formats = @ptrCast(&swap_format),
+            .color_attachment_count = @intCast(color_attachments.len),
+            .p_color_attachment_formats = color_attachments[0..].ptr,
             .depth_attachment_format = .undefined,
             .stencil_attachment_format = .undefined,
         };
 
-        const pipeline_cinfo = vk.GraphicsPipelineCreateInfo{
-            .p_next = &rendering_cinfo,
-            .stage_count = ss_cinfo.len,
-            .p_stages = &ss_cinfo,
-            .p_vertex_input_state = &vi_cinfo,
-            .p_input_assembly_state = &ass_cinfo,
-            .p_viewport_state = &vs_cinfo,
+        const layout = try info.device.createPipelineLayout(&.{
+            .set_layout_count = 0,
+            .push_constant_range_count = 0,
+        }, null);
+        errdefer info.device.destroyPipelineLayout(layout, null);
+
+        const pipeline_cinfos = [_]vk.GraphicsPipelineCreateInfo{.{
+            .stage_count = @intCast(stages.len),
+            .p_stages = stages[0..].ptr,
+            .p_vertex_input_state = &vertex_input_state,
+            .p_input_assembly_state = &input_assembly_state,
+            .p_viewport_state = &viewport_state,
             .p_rasterization_state = &rasterizer,
             .p_multisample_state = &multisampling,
             .p_color_blend_state = &color_blending,
-            .p_dynamic_state = &ds_cinfo,
+            .p_dynamic_state = &dynamic_state_info,
             .layout = layout,
             .render_pass = .null_handle,
             .subpass = 0,
             .base_pipeline_index = -1,
-        };
+            .p_next = &rendering_cinfo,
+        }};
 
         var pipelines: [1]vk.Pipeline = undefined;
-        const pipeline_cinfos = [_]vk.GraphicsPipelineCreateInfo{pipeline_cinfo};
-        const result = try device.createGraphicsPipelines(
-            .null_handle,
-            pipeline_cinfos[0..],
-            null,
-            pipelines[0..],
-        );
-        if (result != .success) return error.CreateGraphicsPipelineFailed;
+        const res = try info.device.createGraphicsPipelines(.null_handle, pipeline_cinfos[0..], null, pipelines[0..]);
+        if (res != .success) return error.CreateGraphicsPipelineFailed;
 
-        return GraphicPipeline{
+        return GraphicsPipeline{
             .handle = pipelines[0],
             .layout = layout,
         };
     }
 
-    pub fn destroy(self: *const GraphicPipeline, device: vk.DeviceProxy) void {
+    pub fn destroy(self: *const GraphicsPipeline, device: vk.DeviceProxy) void {
         device.destroyPipeline(self.handle, null);
         device.destroyPipelineLayout(self.layout, null);
     }

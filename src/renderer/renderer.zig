@@ -11,6 +11,7 @@ pub const Renderer = struct {
     device_wrapper: vk.DeviceWrapper,
     graphics_queue_handle: vk.Queue,
     swapchain: vkh.Swapchain,
+    graphics_pipeline: vkh.GraphicsPipeline,
 
     pub const InitInfo = struct {
         ctx: *const VulkanContext,
@@ -48,23 +49,38 @@ pub const Renderer = struct {
         const triangle_shader = try loadShader(info.io, info.allocator, device_proxy, info.shaders_dir, "triangle.spv");
         defer device_proxy.destroyShaderModule(triangle_shader, null);
 
+        const gp = try vkh.GraphicsPipeline.create(.{
+            .device = device_proxy,
+            .shader = triangle_shader,
+            .extent = swapchain.extent,
+            .format = swapchain.format.format,
+        });
+        errdefer gp.destroy(device_proxy);
+
         return Renderer{
             .device_handle = device_bundle.handle,
             .device_wrapper = device_bundle.wrapper,
             .graphics_queue_handle = gq_handle,
             .swapchain = swapchain,
+            .graphics_pipeline = gp,
         };
     }
 
     pub fn destroy(self: *const Renderer) void {
         const device_proxy = self.device();
         device_proxy.deviceWaitIdle() catch {};
+        self.graphics_pipeline.destroy(device_proxy);
         self.swapchain.destroy(device_proxy);
         device_proxy.destroyDevice(null);
     }
 
     pub fn drawFrame() void {}
-    pub fn recreateSwapchain() void {}
+
+    // Create new swapchain with old handle, if image format changes invalidate pipeline
+    pub fn recreateSwapchain(self: *Renderer, window: *glfw.Window) void {
+        _ = self;
+        _ = window;
+    }
 
     pub fn device(self: *const Renderer) vk.DeviceProxy {
         return vk.DeviceProxy.init(self.device_handle, &self.device_wrapper);

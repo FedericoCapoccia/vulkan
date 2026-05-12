@@ -174,14 +174,14 @@ pub fn createDevice(
         .sType = vp.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueFamilyIndex = queue_family,
         .queueCount = 1,
-        .pQueuePriorities = &queue_priority,
+        .pQueuePriorities = queue_priority[0..].ptr,
     }};
 
     const device_cinfo = vp.VkDeviceCreateInfo{
         .sType = vp.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext = p_next,
         .queueCreateInfoCount = queue_cinfo.len,
-        .pQueueCreateInfos = &queue_cinfo,
+        .pQueueCreateInfos = queue_cinfo[0..].ptr,
         .enabledExtensionCount = @intCast(extensions.len),
         .ppEnabledExtensionNames = if (extensions.len == 0) null else @ptrCast(extensions.ptr),
     };

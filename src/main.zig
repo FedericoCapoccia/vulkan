@@ -4,7 +4,7 @@ const glfw = @import("zglfw");
 const vk = @import("vulkan");
 const vkr = @import("renderer.zig");
 
-const GraphicPipeline = @import("vk/pipeline.zig").GraphicPipeline;
+const GraphicsPipeline = @import("renderer/vk/pipeline.zig").GraphicsPipeline;
 const Swapchain = @import("renderer/vk/swapchain.zig").Swapchain;
 
 pub fn main(init: std.process.Init) !void {
@@ -24,16 +24,16 @@ pub fn main(init: std.process.Init) !void {
     });
     defer vk_context.destroy();
 
-    // TODO move them inside renderer initialization block after moving shader module and pipeline creation in renderer
-    const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
-    defer init.gpa.free(exe_dir);
-
-    const shaders_path = try std.Io.Dir.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
-    defer init.gpa.free(shaders_path);
-
     const renderer = blk: {
+        const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
+        defer init.gpa.free(exe_dir);
+
+        const shaders_path = try std.Io.Dir.path.join(init.gpa, &.{ exe_dir, "resources", "shaders" });
+        defer init.gpa.free(shaders_path);
+
         const shaders_dir = try std.Io.Dir.openDirAbsolute(init.io, shaders_path, .{});
         defer shaders_dir.close(init.io);
+
         break :blk try vkr.Renderer.init(.{
             .ctx = &vk_context,
             .window = window,
@@ -46,23 +46,6 @@ pub fn main(init: std.process.Init) !void {
 
     const device = renderer.device();
     const graphics_queue = renderer.graphicsQueue();
-
-    const triangle_shader = try createShaderModule(
-        init.io,
-        init.gpa,
-        device,
-        shaders_path,
-        "triangle.spv",
-    );
-    defer device.destroyShaderModule(triangle_shader, null);
-
-    const pipeline = try GraphicPipeline.create(
-        device,
-        triangle_shader,
-        renderer.swapchain.extent,
-        renderer.swapchain.format.format,
-    );
-    defer pipeline.destroy(device);
 
     const present_complete_sem = try device.createSemaphore(&.{}, null);
     defer device.destroySemaphore(present_complete_sem, null);
@@ -123,7 +106,7 @@ pub fn main(init: std.process.Init) !void {
             .null_handle,
         );
 
-        try recordCmd(cmd, renderer.swapchain, pipeline, res.image_index);
+        try recordCmd(cmd, renderer.swapchain, renderer.graphics_pipeline, res.image_index);
         const render_finished_sem = render_finished_sems[res.image_index];
 
         const wait_dst_stage_mask = [_]vk.PipelineStageFlags{
@@ -163,7 +146,7 @@ pub fn main(init: std.process.Init) !void {
 fn recordCmd(
     cmd: vk.CommandBufferProxy,
     swapchain: Swapchain,
-    pipeline: GraphicPipeline,
+    pipeline: GraphicsPipeline,
     img_idx: u32,
 ) !void {
     const begin_info = vk.CommandBufferBeginInfo{
@@ -240,36 +223,6 @@ fn recordCmd(
     );
 
     try cmd.endCommandBuffer();
-}
-
-fn createShaderModule(
-    io: std.Io,
-    allocator: std.mem.Allocator,
-    device: vk.DeviceProxy,
-    shader_dir: []const u8,
-    filename: []const u8,
-) !vk.ShaderModule {
-    const path = try std.fs.path.join(allocator, &.{ shader_dir, filename });
-    defer allocator.free(path);
-
-    const code = try std.Io.Dir.cwd().readFileAllocOptions(
-        io,
-        path,
-        allocator,
-        .limited(1024 * 1024),
-        .of(u32),
-        null,
-    );
-    defer allocator.free(code);
-
-    if (code.len % @sizeOf(u32) != 0) return error.InvalidSpirVSize;
-
-    const cinfo = vk.ShaderModuleCreateInfo{
-        .code_size = code.len,
-        .p_code = std.mem.bytesAsSlice(u32, code).ptr,
-    };
-
-    return device.createShaderModule(&cinfo, null);
 }
 
 fn transitionImageLayout(

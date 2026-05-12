@@ -11,3 +11,5 @@ pub const EngineExtension = profile.EngineExtension;
 pub const EngineProfile = profile.EngineProfile;
 const swapchain = @import("vk/swapchain.zig");
 pub const Swapchain = swapchain.Swapchain;
+const pipeline = @import("vk/pipeline.zig");
+pub const GraphicsPipeline = pipeline.GraphicsPipeline;
