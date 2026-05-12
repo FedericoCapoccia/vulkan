@@ -85,19 +85,19 @@ pub const Renderer = struct {
 
         const device_bundle = try vkh.createDevice(
             instance,
-            info.ctx.pdev,
-            info.ctx.queue_families,
-            info.ctx.profile,
+            info.ctx.pdev.handle,
+            info.ctx.pdev.queue_families,
+            info.ctx.pdev.profile,
             &info.ctx.requirements,
         );
         const device_proxy = vk.DeviceProxy.init(device_bundle.handle, &device_bundle.wrapper);
         errdefer device_proxy.destroyDevice(null);
 
-        const gq_handle = device_proxy.getDeviceQueue(info.ctx.queue_families.graphics, 0);
+        const gq_handle = device_proxy.getDeviceQueue(info.ctx.pdev.queue_families.graphics, 0);
 
         const swapchain = try vkh.Swapchain.create(&.{
             .instance = instance,
-            .pdev = info.ctx.pdev,
+            .pdev = info.ctx.pdev.handle,
             .surface = info.ctx.surface,
             .device = device_proxy,
             .window = info.window,
@@ -129,10 +129,7 @@ pub const Renderer = struct {
         }
 
         for (&frames) |*frame| {
-            frame.* = try FrameData.create(
-                device_proxy,
-                info.ctx.queue_families.graphics,
-            );
+            frame.* = try FrameData.create(device_proxy, info.ctx.pdev.queue_families.graphics);
             frame_count += 1;
         }
 
@@ -379,7 +376,7 @@ pub const Renderer = struct {
 
         const new_swapchain = try vkh.Swapchain.create(&.{
             .instance = self.ctx.instance.proxy(),
-            .pdev = self.ctx.pdev,
+            .pdev = self.ctx.pdev.handle,
             .surface = self.ctx.surface,
             .device = dev,
             .window = window,

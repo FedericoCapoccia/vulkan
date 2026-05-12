@@ -21,9 +21,7 @@ const enable_validation = switch (@import("builtin").mode) {
 pub const VulkanContext = struct {
     instance: rvk.Instance,
     surface: vk.SurfaceKHR,
-    pdev: vk.PhysicalDevice,
-    queue_families: rvk.QueueFamilies,
-    profile: rvk.EngineProfile,
+    pdev: rvk.PhysicalDevice,
     requirements: rvk.EngineRequirements,
 
     pub const InitError = error{
@@ -64,6 +62,7 @@ pub const VulkanContext = struct {
             return error.InstanceInitFailed;
         };
         errdefer instance.deinit();
+
         const instance_proxy = instance.proxy();
 
         var surface: vk.SurfaceKHR = .null_handle;
@@ -73,23 +72,21 @@ pub const VulkanContext = struct {
         };
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
-        const pdev_bundle = rvk.selectPhysicalDevice(
-            instance_proxy,
-            surface,
-            &requirements,
-            allocator,
-        ) catch |err| {
-            std.log.err("Failed to select suitable Vulkan physical device: {}", .{err});
+        const pdev = rvk.PhysicalDevice.select(&.{
+            .instance = instance_proxy,
+            .surface = surface,
+            .requirements = &requirements,
+            .allocator = allocator,
+        }) catch |err| {
+            std.log.err("Failed to select Vulkan physical device: {}", .{err});
             return error.PhysicalDeviceSelectionFailed;
         };
 
         return VulkanContext{
             .instance = instance,
             .surface = surface,
-            .pdev = pdev_bundle.handle,
-            .queue_families = pdev_bundle.queue_families,
+            .pdev = pdev,
             .requirements = requirements,
-            .profile = pdev_bundle.profile,
         };
     }
 

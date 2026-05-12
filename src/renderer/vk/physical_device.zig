@@ -3,63 +3,79 @@ const std = @import("std");
 const vk = @import("vulkan");
 const profile = @import("profile.zig");
 
-pub const PhysicalDevice = struct {
-    handle: vk.PhysicalDevice,
-    queue_families: QueueFamilies,
-    profile: profile.EngineProfile,
-};
-
 pub const QueueFamilies = struct {
     graphics: u32,
     // compute: u32,
     // transfer: u32,
 };
 
-pub fn select(
-    instance: vk.InstanceProxy,
-    surface: vk.SurfaceKHR,
-    requirements: *const profile.EngineRequirements,
-    allocator: std.mem.Allocator,
-) !PhysicalDevice {
-    const devices = try instance.enumeratePhysicalDevicesAlloc(allocator);
-    defer allocator.free(devices);
-    if (devices.len == 0) return error.NoPhysicalDevice;
+pub const PhysicalDevice = struct {
+    handle: vk.PhysicalDevice,
+    queue_families: QueueFamilies,
+    profile: profile.EngineProfile,
 
-    var selected: ?PhysicalDevice = null;
-    var selected_props: vk.PhysicalDeviceProperties = undefined;
-    for (devices) |device| {
-        var props = vk.PhysicalDeviceProperties2{ .properties = undefined };
-        instance.getPhysicalDeviceProperties2(device, &props);
+    pub const SelectInfo = struct {
+        instance: vk.InstanceProxy,
+        surface: vk.SurfaceKHR,
+        requirements: *const profile.EngineRequirements,
+        allocator: std.mem.Allocator,
+    };
 
-        if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
-        const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
-        if (!try hasSwapchainSupport(instance, device, surface, allocator)) continue;
+    pub const SelectError = error{
+        VulkanError,
+        OutOfMemory,
+        NoPhysicalDevice,
+        NoSuitablePhysicalDevice,
+    };
 
-        const pf = try profile.supportedProfile(instance, device, requirements, allocator) orelse continue;
-
-        const candidate = PhysicalDevice{
-            .handle = device,
-            .queue_families = queue_families,
-            .profile = pf,
+    pub fn select(info: *const SelectInfo) SelectError!PhysicalDevice {
+        const devices = info.instance.enumeratePhysicalDevicesAlloc(info.allocator) catch |err| {
+            std.log.err("Failed to enumerate available physical devices: {}", .{err});
+            return switch (err) {
+                error.OutOfMemory => SelectError.OutOfMemory,
+                else => SelectError.VulkanError,
+            };
         };
+        defer info.allocator.free(devices);
 
-        if (props.properties.device_type == .discrete_gpu) {
-            selected = candidate;
-            selected_props = props.properties;
-            break;
+        if (devices.len == 0) return error.NoPhysicalDevice;
+
+        var selected: ?PhysicalDevice = null;
+        var selected_props: vk.PhysicalDeviceProperties = undefined;
+        for (devices) |device| {
+            var props = vk.PhysicalDeviceProperties2{ .properties = undefined };
+            info.instance.getPhysicalDeviceProperties2(device, &props);
+
+            if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
+
+            const queue_families = (try findQueueFamilies(info.instance, device, info.surface, info.allocator)) orelse continue;
+
+            const pf = try profile.supportedProfile(info.instance, device, info.requirements, info.allocator) orelse continue;
+
+            const candidate = PhysicalDevice{
+                .handle = device,
+                .queue_families = queue_families,
+                .profile = pf,
+            };
+
+            if (props.properties.device_type == .discrete_gpu) {
+                selected = candidate;
+                selected_props = props.properties;
+                break;
+            }
+
+            if (selected == null) {
+                selected = candidate;
+                selected_props = props.properties;
+            }
         }
 
-        if (selected == null) {
-            selected = candidate;
-            selected_props = props.properties;
-        }
+        const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
+        logSelectedDevice(selected_props, physical_device.queue_families, physical_device.profile);
+
+        return physical_device;
     }
-
-    const physical_device = selected orelse return error.NoSuitablePhysicalDevice;
-    logSelectedDevice(selected_props, physical_device.queue_families, physical_device.profile);
-
-    return physical_device;
-}
+};
 
 fn logSelectedDevice(props: vk.PhysicalDeviceProperties, queue_families: QueueFamilies, engine_profile: profile.EngineProfile) void {
     const device_name = std.mem.sliceTo(&props.device_name, 0);
@@ -78,7 +94,7 @@ fn findQueueFamilies(
     device: vk.PhysicalDevice,
     surface: vk.SurfaceKHR,
     allocator: std.mem.Allocator,
-) !?QueueFamilies {
+) error{OutOfMemory}!?QueueFamilies {
     // TODO: Open a vulkan-zig issue: getPhysicalDeviceQueueFamilyProperties2Alloc
     // allocates an uninitialized []QueueFamilyProperties2 and passes it to Vulkan.
     // The driver reads s_type/p_next before writing queue_family_properties, so each
@@ -117,11 +133,14 @@ fn findQueueFamilies(
         if (props.queue_count == 0 or !props.queue_flags.graphics_bit) continue;
 
         const queue_family_index: u32 = @intCast(index);
-        const present_supported = try instance.getPhysicalDeviceSurfaceSupportKHR(
+        const present_supported = instance.getPhysicalDeviceSurfaceSupportKHR(
             device,
             queue_family_index,
             surface,
-        );
+        ) catch |err| {
+            std.log.err("Failed to query surface support Queue family {}: {}", .{ index, err });
+            continue;
+        };
 
         if (present_supported == .true) {
             return .{ .graphics = queue_family_index };
@@ -129,19 +148,4 @@ fn findQueueFamilies(
     }
 
     return null;
-}
-
-fn hasSwapchainSupport(
-    instance: vk.InstanceProxy,
-    device: vk.PhysicalDevice,
-    surface: vk.SurfaceKHR,
-    allocator: std.mem.Allocator,
-) !bool {
-    const formats = try instance.getPhysicalDeviceSurfaceFormatsAllocKHR(device, surface, allocator);
-    defer allocator.free(formats);
-    if (formats.len == 0) return false;
-
-    const present_modes = try instance.getPhysicalDeviceSurfacePresentModesAllocKHR(device, surface, allocator);
-    defer allocator.free(present_modes);
-    return present_modes.len != 0;
 }

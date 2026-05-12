@@ -30,7 +30,7 @@ pub fn supportedProfile(
     pdev: vk.PhysicalDevice,
     requirements: *const EngineRequirements,
     allocator: std.mem.Allocator,
-) !?EngineProfile {
+) error{ OutOfMemory, VulkanError }!?EngineProfile {
     const candidates = [_]EngineProfile{
         .roadmap2026,
         .roadmap2024,
@@ -41,12 +41,12 @@ pub fn supportedProfile(
         var props = profileProperties(candidate);
 
         var supported: vp.VkBool32 = vp.VK_FALSE;
-        try check(vp.vpGetPhysicalDeviceProfileSupport(
+        check(vp.vpGetPhysicalDeviceProfileSupport(
             toCInstance(instance.handle),
             toCPhysicalDevice(pdev),
             &props,
             &supported,
-        ));
+        )) catch return error.VulkanError;
 
         if (supported == vp.VK_TRUE and
             try hasExtraDeviceExtensions(instance, pdev, candidate, requirements.extra_device_extensions, allocator) and
@@ -65,8 +65,14 @@ fn hasExtraDeviceExtensions(
     engine_profile: EngineProfile,
     extra_extensions: []const EngineExtension,
     allocator: std.mem.Allocator,
-) !bool {
-    const available = try instance.enumerateDeviceExtensionPropertiesAlloc(pdev, null, allocator);
+) error{ OutOfMemory, VulkanError }!bool {
+    const available = instance.enumerateDeviceExtensionPropertiesAlloc(pdev, null, allocator) catch |err| {
+        std.log.err("Failed to enumerate available device extensions: {}", .{err});
+        return switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            else => error.VulkanError,
+        };
+    };
     defer allocator.free(available);
 
     for (extra_extensions) |extension| {
