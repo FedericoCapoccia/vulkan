@@ -155,9 +155,14 @@ pub const Renderer = struct {
 
     pub fn destroy(self: *Renderer) void {
         const device_proxy = self.device();
-        device_proxy.deviceWaitIdle() catch {};
+        device_proxy.deviceWaitIdle() catch |err| {
+            std.log.err("Failed to wait for Vulkan device idle during teardown: {}", .{err});
+        };
 
-        destroyRenderSemaphores(device_proxy, self.render_finished[0..], self.allocator);
+        for (self.render_finished) |semaphore| {
+            device_proxy.destroySemaphore(semaphore, null);
+        }
+        self.allocator.free(self.render_finished);
 
         for (&self.frames) |*frame| {
             frame.destroy(device_proxy);
@@ -381,7 +386,12 @@ pub const Renderer = struct {
         errdefer new_swapchain.destroy(dev);
 
         const new_render_finished = try createRenderSemaphores(dev, new_swapchain.images.len, self.allocator);
-        errdefer destroyRenderSemaphores(dev, new_render_finished[0..], self.allocator);
+        errdefer {
+            for (new_render_finished) |semaphore| {
+                dev.destroySemaphore(semaphore, null);
+            }
+            self.allocator.free(new_render_finished);
+        }
 
         const format_changed = new_swapchain.format.format != old_swapchain.format.format;
         var new_pipeline: ?vkh.GraphicsPipeline = null;
@@ -409,7 +419,11 @@ pub const Renderer = struct {
         }
         self.framebuffer_resized = false;
 
-        destroyRenderSemaphores(dev, old_render_finished[0..], self.allocator);
+        for (old_render_finished) |semaphore| {
+            dev.destroySemaphore(semaphore, null);
+        }
+        self.allocator.free(old_render_finished);
+
         old_swapchain.destroy(dev);
         if (format_changed) {
             old_pipeline.destroy(dev);
@@ -451,7 +465,9 @@ fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: st
     const semaphores = try allocator.alloc(vk.Semaphore, image_count);
     var count: usize = 0;
     errdefer {
-        destroySemaphoreHandles(dev, semaphores[0..count]);
+        for (semaphores[0..count]) |semaphore| {
+            dev.destroySemaphore(semaphore, null);
+        }
         allocator.free(semaphores);
     }
 
@@ -461,17 +477,6 @@ fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: st
     }
 
     return semaphores;
-}
-
-fn destroyRenderSemaphores(dev: vk.DeviceProxy, semaphores: []vk.Semaphore, allocator: std.mem.Allocator) void {
-    destroySemaphoreHandles(dev, semaphores);
-    allocator.free(semaphores);
-}
-
-fn destroySemaphoreHandles(dev: vk.DeviceProxy, semaphores: []const vk.Semaphore) void {
-    for (semaphores) |semaphore| {
-        dev.destroySemaphore(semaphore, null);
-    }
 }
 
 fn transitionImageLayout(
