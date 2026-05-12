@@ -1,11 +1,7 @@
 const std = @import("std");
 
 const glfw = @import("zglfw");
-const vk = @import("vulkan");
 const vkr = @import("renderer.zig");
-
-const GraphicsPipeline = @import("renderer/vk/pipeline.zig").GraphicsPipeline;
-const Swapchain = @import("renderer/vk/swapchain.zig").Swapchain;
 
 pub fn main(init: std.process.Init) !void {
     try glfw.init();

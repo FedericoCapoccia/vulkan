@@ -92,7 +92,7 @@ fn selectFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
     defer info.allocator.free(formats);
 
     if (formats.len == 0) {
-        std.log.err("No available formats wtf", .{});
+        std.log.err("No surface formats available", .{});
         return error.NoSurfaceFormatAvailable;
     }
 
@@ -110,7 +110,7 @@ fn selectPresentMode(info: *const Swapchain.CreateInfo) !vk.PresentModeKHR {
     defer info.allocator.free(modes);
 
     if (modes.len == 0) {
-        std.log.err("No available present mode wtf", .{});
+        std.log.err("No present modes available", .{});
         return error.NoPresentModeAvailable;
     }
 

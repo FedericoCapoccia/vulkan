@@ -7,7 +7,6 @@ pub const GraphicsPipeline = struct {
     pub const CreateInfo = struct {
         device: vk.DeviceProxy,
         shader: vk.ShaderModule,
-        extent: vk.Extent2D,
         format: vk.Format,
     };
 
@@ -32,18 +31,19 @@ pub const GraphicsPipeline = struct {
             .primitive_restart_enable = .false,
         };
 
+        // Viewport and scissor are dynamic; these values are ignored but counts are still required.
         const viewports = [_]vk.Viewport{.{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(info.extent.width),
-            .height = @floatFromInt(info.extent.height),
+            .width = 1.0,
+            .height = 1.0,
             .min_depth = 0.0,
             .max_depth = 1.0,
         }};
 
         const scissors = [_]vk.Rect2D{.{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = info.extent,
+            .extent = .{ .width = 1, .height = 1 },
         }};
 
         const viewport_state = vk.PipelineViewportStateCreateInfo{

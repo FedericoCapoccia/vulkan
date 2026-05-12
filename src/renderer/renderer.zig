@@ -6,9 +6,9 @@ const vk = @import("vulkan");
 const vkh = @import("vk.zig");
 const VulkanContext = @import("context.zig").VulkanContext;
 
-const MAX_FIF = 2;
+const max_frames_in_flight = 2;
 
-pub const FrameData = struct {
+const FrameData = struct {
     command_pool: vk.CommandPool,
     command_buffer: vk.CommandBuffer,
     image_available: vk.Semaphore,
@@ -58,13 +58,14 @@ pub const FrameData = struct {
 };
 
 pub const Renderer = struct {
+    // Owns Vulkan handles; do not copy after init.
     allocator: std.mem.Allocator,
     device_handle: vk.Device,
     device_wrapper: vk.DeviceWrapper,
     graphics_queue_handle: vk.Queue,
     swapchain: vkh.Swapchain,
     graphics_pipeline: vkh.GraphicsPipeline,
-    frames: [MAX_FIF]FrameData,
+    frames: [max_frames_in_flight]FrameData,
     render_finished: []vk.Semaphore,
     current_frame: usize = 0,
 
@@ -107,12 +108,11 @@ pub const Renderer = struct {
         const gp = try vkh.GraphicsPipeline.create(.{
             .device = device_proxy,
             .shader = triangle_shader,
-            .extent = swapchain.extent,
             .format = swapchain.format.format,
         });
         errdefer gp.destroy(device_proxy);
 
-        var frames: [MAX_FIF]FrameData = undefined;
+        var frames: [max_frames_in_flight]FrameData = undefined;
         var frame_count: usize = 0;
         errdefer {
             for (frames[0..frame_count]) |*frame| {
@@ -154,7 +154,7 @@ pub const Renderer = struct {
         };
     }
 
-    pub fn destroy(self: *const Renderer) void {
+    pub fn destroy(self: *Renderer) void {
         const device_proxy = self.device();
         device_proxy.deviceWaitIdle() catch {};
 
@@ -341,7 +341,7 @@ fn loadShader(
     dir: std.Io.Dir,
     name: []const u8,
 ) !vk.ShaderModule {
-    const code = try dir.readFileAllocOptions(
+    const shader_code_bytes = try dir.readFileAllocOptions(
         io,
         name,
         allocator,
@@ -349,15 +349,16 @@ fn loadShader(
         .of(u32),
         null,
     );
-    defer allocator.free(code);
+    defer allocator.free(shader_code_bytes);
 
-    if (code.len % @sizeOf(u32) != 0) {
+    if (shader_code_bytes.len % @sizeOf(u32) != 0) {
         return error.InvalidSpirVSize;
     }
+    const shader_code_words = std.mem.bytesAsSlice(u32, shader_code_bytes);
 
     const cinfo = vk.ShaderModuleCreateInfo{
-        .code_size = code.len,
-        .p_code = std.mem.bytesAsSlice(u32, code).ptr,
+        .code_size = shader_code_bytes.len,
+        .p_code = shader_code_words.ptr,
     };
 
     return device.createShaderModule(&cinfo, null);
