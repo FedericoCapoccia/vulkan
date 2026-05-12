@@ -3,7 +3,7 @@ const std = @import("std");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const vkh = @import("vk.zig");
+const rvk = @import("vk.zig");
 const VulkanContext = @import("context.zig").VulkanContext;
 
 const max_frames_in_flight = 2;
@@ -46,7 +46,7 @@ const FrameData = struct {
         };
     }
 
-    pub fn destroy(self: *const FrameData, device: vk.DeviceProxy) void {
+    pub fn deinit(self: *const FrameData, device: vk.DeviceProxy) void {
         device.destroySemaphore(self.image_available, null);
         device.destroyFence(self.in_flight, null);
         device.destroyCommandPool(self.command_pool, null);
@@ -64,9 +64,9 @@ pub const Renderer = struct {
     device_handle: vk.Device,
     device_wrapper: vk.DeviceWrapper,
     graphics_queue_handle: vk.Queue,
-    swapchain: vkh.Swapchain,
+    swapchain: rvk.Swapchain,
     shaders_dir_path: []const u8,
-    graphics_pipeline: vkh.GraphicsPipeline,
+    graphics_pipeline: rvk.GraphicsPipeline,
     frames: [max_frames_in_flight]FrameData,
     render_finished: []vk.Semaphore,
     current_frame: usize = 0,
@@ -83,7 +83,7 @@ pub const Renderer = struct {
     pub fn init(info: InitInfo) !Renderer {
         const instance = info.ctx.instance.proxy();
 
-        const device_bundle = try vkh.createDevice(
+        const device_bundle = try rvk.createDevice(
             instance,
             info.ctx.pdev.handle,
             info.ctx.pdev.queue_families,
@@ -95,7 +95,7 @@ pub const Renderer = struct {
 
         const gq_handle = device_proxy.getDeviceQueue(info.ctx.pdev.queue_families.graphics, 0);
 
-        const swapchain = try vkh.Swapchain.create(&.{
+        const swapchain = try rvk.Swapchain.create(&.{
             .instance = instance,
             .pdev = info.ctx.pdev.handle,
             .surface = info.ctx.surface,
@@ -103,7 +103,7 @@ pub const Renderer = struct {
             .window = info.window,
             .allocator = info.allocator,
         });
-        errdefer swapchain.destroy(device_proxy);
+        errdefer swapchain.deinit(device_proxy);
 
         const shaders_dir_path = try info.allocator.dupe(u8, info.shaders_dir_path);
         errdefer info.allocator.free(shaders_dir_path);
@@ -113,18 +113,18 @@ pub const Renderer = struct {
         const triangle_shader = try loadShader(info.io, info.allocator, device_proxy, shaders_dir, "triangle.spv");
         defer device_proxy.destroyShaderModule(triangle_shader, null);
 
-        const gp = try vkh.GraphicsPipeline.create(.{
+        const gp = try rvk.GraphicsPipeline.create(.{
             .device = device_proxy,
             .shader = triangle_shader,
             .format = swapchain.format.format,
         });
-        errdefer gp.destroy(device_proxy);
+        errdefer gp.deinit(device_proxy);
 
         var frames: [max_frames_in_flight]FrameData = undefined;
         var frame_count: usize = 0;
         errdefer {
             for (frames[0..frame_count]) |*frame| {
-                frame.destroy(device_proxy);
+                frame.deinit(device_proxy);
             }
         }
 
@@ -150,7 +150,7 @@ pub const Renderer = struct {
         };
     }
 
-    pub fn destroy(self: *Renderer) void {
+    pub fn deinit(self: *Renderer) void {
         const device_proxy = self.device();
         device_proxy.deviceWaitIdle() catch |err| {
             std.log.err("Failed to wait for Vulkan device idle during teardown: {}", .{err});
@@ -162,13 +162,13 @@ pub const Renderer = struct {
         self.allocator.free(self.render_finished);
 
         for (&self.frames) |*frame| {
-            frame.destroy(device_proxy);
+            frame.deinit(device_proxy);
         }
 
-        self.graphics_pipeline.destroy(device_proxy);
+        self.graphics_pipeline.deinit(device_proxy);
         self.allocator.free(self.shaders_dir_path);
 
-        self.swapchain.destroy(device_proxy);
+        self.swapchain.deinit(device_proxy);
         device_proxy.destroyDevice(null);
     }
 
@@ -374,7 +374,7 @@ pub const Renderer = struct {
         const old_pipeline = self.graphics_pipeline;
         const old_render_finished = self.render_finished;
 
-        const new_swapchain = try vkh.Swapchain.create(&.{
+        const new_swapchain = try rvk.Swapchain.create(&.{
             .instance = self.ctx.instance.proxy(),
             .pdev = self.ctx.pdev.handle,
             .surface = self.ctx.surface,
@@ -383,7 +383,7 @@ pub const Renderer = struct {
             .allocator = self.allocator,
             .old_swapchain = old_swapchain.handle,
         });
-        errdefer new_swapchain.destroy(dev);
+        errdefer new_swapchain.deinit(dev);
 
         const new_render_finished = try createRenderSemaphores(dev, new_swapchain.images.len, self.allocator);
         errdefer {
@@ -394,9 +394,9 @@ pub const Renderer = struct {
         }
 
         const format_changed = new_swapchain.format.format != old_swapchain.format.format;
-        var new_pipeline: ?vkh.GraphicsPipeline = null;
+        var new_pipeline: ?rvk.GraphicsPipeline = null;
         errdefer if (new_pipeline) |pipeline| {
-            pipeline.destroy(dev);
+            pipeline.deinit(dev);
         };
 
         if (format_changed) {
@@ -405,7 +405,7 @@ pub const Renderer = struct {
             const triangle_shader = try loadShader(self.io, self.allocator, dev, shaders_dir, "triangle.spv");
             defer dev.destroyShaderModule(triangle_shader, null);
 
-            new_pipeline = try vkh.GraphicsPipeline.create(.{
+            new_pipeline = try rvk.GraphicsPipeline.create(.{
                 .device = dev,
                 .shader = triangle_shader,
                 .format = new_swapchain.format.format,
@@ -424,9 +424,9 @@ pub const Renderer = struct {
         }
         self.allocator.free(old_render_finished);
 
-        old_swapchain.destroy(dev);
+        old_swapchain.deinit(dev);
         if (format_changed) {
-            old_pipeline.destroy(dev);
+            old_pipeline.deinit(dev);
         }
     }
 };

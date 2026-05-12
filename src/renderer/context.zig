@@ -90,7 +90,7 @@ pub const VulkanContext = struct {
         };
     }
 
-    pub fn destroy(self: *VulkanContext) void {
+    pub fn deinit(self: *VulkanContext) void {
         self.instance.proxy().destroySurfaceKHR(self.surface, null);
         self.instance.deinit();
     }

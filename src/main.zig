@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
         std.log.err("Failed to initialize VulkanContext: {}", .{err});
         return error.VulkanContextInit;
     };
-    defer vk_context.destroy();
+    defer vk_context.deinit();
 
     var renderer = blk: {
         const exe_dir = try std.process.executableDirPathAlloc(init.io, init.gpa);
@@ -39,7 +39,7 @@ pub fn main(init: std.process.Init) !void {
             .allocator = init.gpa,
         });
     };
-    defer renderer.destroy();
+    defer renderer.deinit();
 
     window.setUserPointer(&renderer);
     _ = window.setFramebufferSizeCallback(framebufferResizeCallback);

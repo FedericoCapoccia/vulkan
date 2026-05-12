@@ -151,7 +151,7 @@ pub const GraphicsPipeline = struct {
         };
     }
 
-    pub fn destroy(self: *const GraphicsPipeline, device: vk.DeviceProxy) void {
+    pub fn deinit(self: *const GraphicsPipeline, device: vk.DeviceProxy) void {
         device.destroyPipeline(self.handle, null);
         device.destroyPipelineLayout(self.layout, null);
     }

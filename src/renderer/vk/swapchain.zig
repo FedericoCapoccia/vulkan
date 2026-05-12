@@ -79,7 +79,7 @@ pub const Swapchain = struct {
         };
     }
 
-    pub fn destroy(self: *const Swapchain, device: vk.DeviceProxy) void {
+    pub fn deinit(self: *const Swapchain, device: vk.DeviceProxy) void {
         for (self.views) |view| {
             device.destroyImageView(view, null);
         }
