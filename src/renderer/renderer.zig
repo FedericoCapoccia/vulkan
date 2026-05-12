@@ -81,7 +81,7 @@ pub const Renderer = struct {
     };
 
     pub fn init(info: InitInfo) !Renderer {
-        const instance = info.ctx.instance();
+        const instance = info.ctx.instance.proxy();
 
         const device_bundle = try vkh.createDevice(
             instance,
@@ -378,7 +378,7 @@ pub const Renderer = struct {
         const old_render_finished = self.render_finished;
 
         const new_swapchain = try vkh.Swapchain.create(&.{
-            .instance = self.ctx.instance(),
+            .instance = self.ctx.instance.proxy(),
             .pdev = self.ctx.pdev,
             .surface = self.ctx.surface,
             .device = dev,

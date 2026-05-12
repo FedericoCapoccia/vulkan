@@ -3,72 +3,88 @@ const std = @import("std");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const vkh = @import("vk.zig");
+const rvk = @import("vk.zig");
 
-const extra_device_extensions = [_]vkh.EngineExtension{
+const extra_device_extensions = [_]rvk.EngineExtension{
     .swapchain,
 };
 
-const extra_features = [_]vkh.EngineFeature{
+const extra_features = [_]rvk.EngineFeature{
     .shader_draw_parameters,
 };
 
+const enable_validation = switch (@import("builtin").mode) {
+    .Debug, .ReleaseSafe => true,
+    .ReleaseFast, .ReleaseSmall => false,
+};
+
 pub const VulkanContext = struct {
-    instance_handle: vk.Instance,
-    instance_wrapper: vk.InstanceWrapper,
-    debug_messenger: ?vk.DebugUtilsMessengerEXT,
+    instance: rvk.Instance,
     surface: vk.SurfaceKHR,
     pdev: vk.PhysicalDevice,
-    queue_families: vkh.QueueFamilies,
-    profile: vkh.EngineProfile,
-    requirements: vkh.EngineRequirements,
+    queue_families: rvk.QueueFamilies,
+    profile: rvk.EngineProfile,
+    requirements: rvk.EngineRequirements,
 
-    pub const InitInfo = struct {
-        window: *glfw.Window,
-        log_messages: bool,
-        allocator: std.mem.Allocator,
+    pub const InitError = error{
+        OutOfMemory,
+        InstanceInitFailed,
+        SurfaceCreationFailed,
+        PhysicalDeviceSelectionFailed,
     };
 
-    pub fn init(info: InitInfo) !VulkanContext {
+    pub fn init(window: *glfw.Window, allocator: std.mem.Allocator) InitError!VulkanContext {
         const base = vk.BaseWrapper.load(glfw.getInstanceProcAddress);
 
         var instance_extensions: std.ArrayList([*:0]const u8) = .empty;
-        defer instance_extensions.deinit(info.allocator);
+        defer instance_extensions.deinit(allocator);
 
-        try instance_extensions.appendSlice(info.allocator, try glfw.getRequiredInstanceExtensions());
-        if (info.log_messages) {
-            try instance_extensions.append(info.allocator, vk.extensions.ext_debug_utils.name);
+        const glfw_ext = glfw.getRequiredInstanceExtensions() catch |err| {
+            std.log.err("Failed to get required GLFW instance extensions: {}", .{err});
+            return InitError.InstanceInitFailed;
+        };
+        try instance_extensions.appendSlice(allocator, glfw_ext);
+
+        if (enable_validation) {
+            try instance_extensions.append(allocator, vk.extensions.ext_debug_utils.name);
         }
 
-        const requirements = vkh.EngineRequirements{
+        const requirements = rvk.EngineRequirements{
             .extra_device_extensions = extra_device_extensions[0..],
             .extra_features = extra_features[0..],
         };
 
-        const instance_bundle = try vkh.createInstance(&base, instance_extensions.items, info.log_messages, info.allocator);
-        const instance_proxy = vk.InstanceProxy.init(instance_bundle.handle, &instance_bundle.wrapper);
-        errdefer {
-            if (instance_bundle.debug_messenger) |messenger| {
-                instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
-            }
-            instance_proxy.destroyInstance(null);
-        }
+        var instance = rvk.Instance.init(&.{
+            .base = base,
+            .enable_messenger = enable_validation,
+            .extensions = instance_extensions.items,
+            .allocator = allocator,
+        }) catch |err| {
+            std.log.err("Failed to initialize Vulkan instance: {}", .{err});
+            return error.InstanceInitFailed;
+        };
+        errdefer instance.deinit();
+        const instance_proxy = instance.proxy();
 
         var surface: vk.SurfaceKHR = .null_handle;
-        try glfw.createWindowSurface(instance_proxy.handle, info.window, null, &surface);
+        glfw.createWindowSurface(instance.handle, window, null, &surface) catch |err| {
+            std.log.err("Failed to create Vulkan window surface: {}", .{err});
+            return error.SurfaceCreationFailed;
+        };
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
-        const pdev_bundle = try vkh.selectPhysicalDevice(
+        const pdev_bundle = rvk.selectPhysicalDevice(
             instance_proxy,
             surface,
             &requirements,
-            info.allocator,
-        );
+            allocator,
+        ) catch |err| {
+            std.log.err("Failed to select suitable Vulkan physical device: {}", .{err});
+            return error.PhysicalDeviceSelectionFailed;
+        };
 
         return VulkanContext{
-            .instance_handle = instance_bundle.handle,
-            .instance_wrapper = instance_bundle.wrapper,
-            .debug_messenger = instance_bundle.debug_messenger,
+            .instance = instance,
             .surface = surface,
             .pdev = pdev_bundle.handle,
             .queue_families = pdev_bundle.queue_families,
@@ -77,19 +93,8 @@ pub const VulkanContext = struct {
         };
     }
 
-    pub fn destroy(self: *const VulkanContext) void {
-        const instance_proxy = self.instance();
-
-        instance_proxy.destroySurfaceKHR(self.surface, null);
-
-        if (self.debug_messenger) |messenger| {
-            instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
-        }
-
-        instance_proxy.destroyInstance(null);
-    }
-
-    pub fn instance(self: *const VulkanContext) vk.InstanceProxy {
-        return vk.InstanceProxy.init(self.instance_handle, &self.instance_wrapper);
+    pub fn destroy(self: *VulkanContext) void {
+        self.instance.proxy().destroySurfaceKHR(self.surface, null);
+        self.instance.deinit();
     }
 };

@@ -4,19 +4,24 @@ const glfw = @import("zglfw");
 const vkr = @import("renderer.zig");
 
 pub fn main(init: std.process.Init) !void {
-    try glfw.init();
+    glfw.init() catch |err| {
+        std.log.err("Failed to initialize GLFW: {}", .{err});
+        return error.GLFWError;
+    };
     defer glfw.terminate();
 
     glfw.windowHint(.client_api, .no_api);
 
-    const window = try glfw.createWindow(800, 600, "Vulkan", null, null);
+    const window = glfw.createWindow(800, 600, "Vulkan", null, null) catch |err| {
+        std.log.err("Failed to create GLFW window: {}", .{err});
+        return error.GLFWError;
+    };
     defer window.destroy();
 
-    const vk_context = try vkr.VulkanContext.init(.{
-        .window = window,
-        .log_messages = true,
-        .allocator = init.gpa,
-    });
+    var vk_context = vkr.VulkanContext.init(window, init.gpa) catch |err| {
+        std.log.err("Failed to initialize VulkanContext: {}", .{err});
+        return error.VulkanContextInit;
+    };
     defer vk_context.destroy();
 
     var renderer = blk: {
@@ -37,8 +42,7 @@ pub fn main(init: std.process.Init) !void {
     defer renderer.destroy();
 
     window.setUserPointer(&renderer);
-    const res_cb = window.setFramebufferSizeCallback(framebufferResizeCallback);
-    _ = res_cb;
+    _ = window.setFramebufferSizeCallback(framebufferResizeCallback);
 
     while (!window.shouldClose()) {
         glfw.pollEvents();

@@ -6,84 +6,138 @@ pub const Instance = struct {
     handle: vk.Instance,
     wrapper: vk.InstanceWrapper,
     debug_messenger: ?vk.DebugUtilsMessengerEXT,
-};
 
-pub fn create(
-    base: *const vk.BaseWrapper,
-    instance_extensions: []const [*:0]const u8,
-    log_messages: bool,
-    allocator: std.mem.Allocator,
-) !Instance {
-    const instance_version = try base.enumerateInstanceVersion();
-    if (instance_version < vk.API_VERSION_1_3.toU32()) {
-        return error.UnsupportedVulkanInstanceVersion;
+    pub const InitInfo = struct {
+        allocator: std.mem.Allocator,
+        base: vk.BaseWrapper,
+        extensions: []const [*:0]const u8,
+        enable_messenger: bool,
+    };
+
+    pub const InitError = error{
+        VulkanError,
+        OutOfMemory,
+        UnsupportedVulkanVersion,
+        UnsupportedExtension,
+    };
+
+    // TODO: make instance creation based on minimal profile: VP_LUNARG_minimum_requirements_1_3
+    pub fn init(info: *const InitInfo) InitError!Instance {
+        const instance_version = info.base.enumerateInstanceVersion() catch |err| {
+            std.log.err("Failed to enumerate instance version: {}", .{err});
+            return InitError.VulkanError;
+        };
+
+        if (instance_version < vk.API_VERSION_1_3.toU32()) {
+            return InitError.UnsupportedVulkanVersion;
+        }
+
+        const version: vk.Version = @bitCast(instance_version);
+        std.log.info("Vulkan instance API: {}.{}.{}", .{ version.major, version.minor, version.patch });
+
+        const available_ext = info.base.enumerateInstanceExtensionPropertiesAlloc(null, info.allocator) catch |err| {
+            std.log.err("Failed to enumerate available instance extensions: {}", .{err});
+            return switch (err) {
+                error.OutOfMemory => InitError.OutOfMemory,
+                else => InitError.VulkanError,
+            };
+        };
+        defer info.allocator.free(available_ext);
+
+        if (!checkExtensions(available_ext, info.extensions)) {
+            return InitError.UnsupportedExtension;
+        }
+
+        const messenger_cinfo = messengerCreateInfo();
+
+        const app_info = vk.ApplicationInfo{
+            .p_application_name = "Vulkan",
+            .application_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
+            .p_engine_name = "No Engine",
+            .engine_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
+            .api_version = instance_version,
+        };
+
+        const cinfo = vk.InstanceCreateInfo{
+            .p_application_info = &app_info,
+            .enabled_extension_count = @intCast(info.extensions.len),
+            .pp_enabled_extension_names = info.extensions[0..].ptr,
+            .p_next = if (info.enable_messenger) &messenger_cinfo else null,
+        };
+
+        const loader = info.base.dispatch.vkGetInstanceProcAddr orelse {
+            std.log.err("Base dispatch didn't load vkGetInstanceProcAddress", .{});
+            return error.VulkanError;
+        };
+
+        const handle = info.base.createInstance(&cinfo, null) catch |err| {
+            std.log.err("Failed to create VkInstance: {}", .{err});
+            return InitError.VulkanError;
+        };
+
+        var self = Instance{
+            .handle = handle,
+            .wrapper = vk.InstanceWrapper.load(handle, loader),
+            .debug_messenger = null,
+        };
+        const instance_proxy = vk.InstanceProxy.init(self.handle, &self.wrapper);
+        errdefer self.deinit();
+
+        if (info.enable_messenger) {
+            self.debug_messenger = instance_proxy.createDebugUtilsMessengerEXT(&messenger_cinfo, null) catch |err| blk: {
+                std.log.warn("Failed to create requested DebugMessenger: {}", .{err});
+                break :blk null;
+            };
+        }
+
+        return self;
     }
 
-    const version: vk.Version = @bitCast(instance_version);
-    std.log.info("Vulkan instance API: {}.{}.{}", .{ version.major, version.minor, version.patch });
+    pub fn deinit(self: *Instance) void {
+        if (self.handle == .null_handle) return;
 
-    const available_extensions = try base.enumerateInstanceExtensionPropertiesAlloc(null, allocator);
-    defer allocator.free(available_extensions);
-    try checkExtensions(instance_extensions, available_extensions);
+        const instance_proxy = self.proxy();
 
-    var messenger_cinfo = messengerCreateInfo();
+        if (self.debug_messenger) |messenger| {
+            instance_proxy.destroyDebugUtilsMessengerEXT(messenger, null);
+            self.debug_messenger = null;
+        }
 
-    const app_info = vk.ApplicationInfo{
-        .p_application_name = "Vulkan",
-        .application_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
-        .p_engine_name = "No Engine",
-        .engine_version = vk.makeApiVersion(0, 0, 1, 0).toU32(),
-        .api_version = instance_version,
-    };
+        instance_proxy.destroyInstance(null);
+        self.handle = .null_handle;
+        self.wrapper = undefined;
+    }
 
-    const cinfo = vk.InstanceCreateInfo{
-        .p_application_info = &app_info,
-        .enabled_extension_count = @intCast(instance_extensions.len),
-        .pp_enabled_extension_names = if (instance_extensions.len == 0) null else instance_extensions.ptr,
-        .p_next = if (log_messages) &messenger_cinfo else null,
-    };
+    pub fn proxy(self: *const Instance) vk.InstanceProxy {
+        return vk.InstanceProxy.init(self.handle, &self.wrapper);
+    }
+};
 
-    const handle = try base.createInstance(&cinfo, null);
-    const wrapper = vk.InstanceWrapper.load(handle, base.dispatch.vkGetInstanceProcAddr.?);
-    errdefer wrapper.destroyInstance(handle, null);
-
-    const debug_messenger = if (log_messages)
-        try wrapper.createDebugUtilsMessengerEXT(handle, &messenger_cinfo, null)
-    else
-        null;
-
-    return .{
-        .handle = handle,
-        .wrapper = wrapper,
-        .debug_messenger = debug_messenger,
-    };
-}
-
-fn checkExtensions(required: []const [*:0]const u8, available: []const vk.ExtensionProperties) !void {
+fn checkExtensions(available: []vk.ExtensionProperties, requested: []const [*:0]const u8) bool {
     std.log.info("Enabled instance extensions", .{});
 
     var all_found = true;
-    for (required) |required_z| {
-        const required_name = std.mem.span(required_z);
+    for (requested) |requested_z| {
+        const requested_name = std.mem.span(requested_z);
         var found: ?vk.ExtensionProperties = null;
 
         for (available) |extension| {
             const available_name = std.mem.sliceTo(&extension.extension_name, 0);
-            if (std.mem.eql(u8, required_name, available_name)) {
+            if (std.mem.eql(u8, requested_name, available_name)) {
                 found = extension;
                 break;
             }
         }
 
         if (found) |extension| {
-            std.log.info("\t[OK] {s} v{}", .{ required_name, extension.spec_version });
+            std.log.info("\t[OK] {s} v{}", .{ requested_name, extension.spec_version });
         } else {
             all_found = false;
-            std.log.err("\t[MISSING] {s} v0", .{required_name});
+            std.log.err("\t[MISSING] {s} v0", .{requested_name});
         }
     }
 
-    if (!all_found) return error.MissingRequiredInstanceExtension;
+    return all_found;
 }
 
 fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {

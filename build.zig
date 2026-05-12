@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
     const vulkan_zig = b.dependency("vulkan", .{
         .registry = registry,
     }).module("vulkan-zig");
+    const vma = addVma(.{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .vulkan_include = vulkan_headers.path("include"),
+    });
     const profiles = addVulkanProfiles(.{
         .b = b,
         .python = python,
@@ -40,8 +46,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mod.addImport("vulkan", vulkan_zig);
+    mod.addImport("vma", vma.module);
     mod.addImport("zglfw", zglfw_mod);
     mod.addImport("vulkan-profiles", profiles.module);
+    mod.linkLibrary(vma.library);
     mod.linkLibrary(profiles.library);
     if (target.result.os.tag != .emscripten) {
         const vulkan_loader = switch (target.result.os.tag) {
@@ -85,6 +93,53 @@ const VulkanProfiles = struct {
     module: *std.Build.Module,
     library: *std.Build.Step.Compile,
 };
+
+const Vma = struct {
+    module: *std.Build.Module,
+    library: *std.Build.Step.Compile,
+};
+
+const VmaOptions = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    vulkan_include: std.Build.LazyPath,
+};
+
+fn addVma(options: VmaOptions) Vma {
+    const b = options.b;
+
+    const lib_mod = b.createModule(.{
+        .target = options.target,
+        .optimize = options.optimize,
+        .link_libcpp = true,
+    });
+    lib_mod.addIncludePath(b.path("vendor/vma"));
+    lib_mod.addIncludePath(options.vulkan_include);
+    lib_mod.addCSourceFile(.{
+        .file = b.path("vendor/vma/vma_impl.cpp"),
+        .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti" },
+    });
+
+    const library = b.addLibrary(.{
+        .name = "vma",
+        .root_module = lib_mod,
+        .linkage = .static,
+    });
+
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("vendor/vma/vk_mem_alloc.h"),
+        .target = options.target,
+        .optimize = options.optimize,
+    });
+    translate_c.addIncludePath(b.path("vendor/vma"));
+    translate_c.addIncludePath(options.vulkan_include);
+
+    return .{
+        .module = translate_c.createModule(),
+        .library = library,
+    };
+}
 
 const VulkanProfilesOptions = struct {
     b: *std.Build,
