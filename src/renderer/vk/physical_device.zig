@@ -33,6 +33,7 @@ pub fn select(
 
         if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
         const queue_families = (try findQueueFamilies(instance, device, surface, allocator)) orelse continue;
+        if (!try hasSwapchainSupport(instance, device, surface, allocator)) continue;
 
         const pf = try profile.supportedProfile(instance, device, requirements, allocator) orelse continue;
 
@@ -128,4 +129,19 @@ fn findQueueFamilies(
     }
 
     return null;
+}
+
+fn hasSwapchainSupport(
+    instance: vk.InstanceProxy,
+    device: vk.PhysicalDevice,
+    surface: vk.SurfaceKHR,
+    allocator: std.mem.Allocator,
+) !bool {
+    const formats = try instance.getPhysicalDeviceSurfaceFormatsAllocKHR(device, surface, allocator);
+    defer allocator.free(formats);
+    if (formats.len == 0) return false;
+
+    const present_modes = try instance.getPhysicalDeviceSurfacePresentModesAllocKHR(device, surface, allocator);
+    defer allocator.free(present_modes);
+    return present_modes.len != 0;
 }

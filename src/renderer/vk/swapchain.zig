@@ -23,6 +23,8 @@ pub const Swapchain = struct {
     };
 
     pub fn create(info: *const CreateInfo) !Swapchain {
+        waitForDrawableFramebuffer(info.window);
+
         const capabilities = try info.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(info.pdev, info.surface);
         const format = try selectFormat(info);
         const pmode = try selectPresentMode(info);
@@ -86,6 +88,14 @@ pub const Swapchain = struct {
         device.destroySwapchainKHR(self.handle, null);
     }
 };
+
+fn waitForDrawableFramebuffer(window: *glfw.Window) void {
+    var fb_size = window.getFramebufferSize();
+    while (fb_size[0] == 0 or fb_size[1] == 0) {
+        glfw.waitEvents();
+        fb_size = window.getFramebufferSize();
+    }
+}
 
 fn selectFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
     const formats = try info.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(info.pdev, info.surface, info.allocator);

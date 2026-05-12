@@ -44,7 +44,11 @@ pub fn build(b: *std.Build) void {
     mod.addImport("vulkan-profiles", profiles.module);
     mod.linkLibrary(profiles.library);
     if (target.result.os.tag != .emscripten) {
-        mod.linkSystemLibrary("vulkan", .{});
+        const vulkan_loader = switch (target.result.os.tag) {
+            .windows => "vulkan-1",
+            else => "vulkan",
+        };
+        mod.linkSystemLibrary(vulkan_loader, .{});
         mod.linkLibrary(zglfw.artifact("glfw"));
     }
 

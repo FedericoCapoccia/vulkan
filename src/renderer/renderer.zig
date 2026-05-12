@@ -206,7 +206,6 @@ pub const Renderer = struct {
 
         const should_recreate = self.framebuffer_resized or acquire.result == .suboptimal_khr;
 
-        try dev.resetFences(fences[0..]);
         try dev.resetCommandPool(frame.command_pool, .{});
 
         const cmd = frame.cmd(dev);
@@ -241,6 +240,7 @@ pub const Renderer = struct {
             .p_signal_semaphore_infos = signal_semaphores[0..].ptr,
         }};
 
+        try dev.resetFences(fences[0..]);
         try graphics_queue.submit2(submit_info[0..], frame.in_flight);
 
         const present_wait_semaphores = [_]vk.Semaphore{render_finished};
@@ -450,7 +450,10 @@ fn loadShader(
 fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: std.mem.Allocator) ![]vk.Semaphore {
     const semaphores = try allocator.alloc(vk.Semaphore, image_count);
     var count: usize = 0;
-    errdefer destroyRenderSemaphores(dev, semaphores[0..count], allocator);
+    errdefer {
+        destroySemaphoreHandles(dev, semaphores[0..count]);
+        allocator.free(semaphores);
+    }
 
     for (semaphores) |*semaphore| {
         semaphore.* = try dev.createSemaphore(&.{}, null);
@@ -461,10 +464,14 @@ fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: st
 }
 
 fn destroyRenderSemaphores(dev: vk.DeviceProxy, semaphores: []vk.Semaphore, allocator: std.mem.Allocator) void {
+    destroySemaphoreHandles(dev, semaphores);
+    allocator.free(semaphores);
+}
+
+fn destroySemaphoreHandles(dev: vk.DeviceProxy, semaphores: []const vk.Semaphore) void {
     for (semaphores) |semaphore| {
         dev.destroySemaphore(semaphore, null);
     }
-    allocator.free(semaphores);
 }
 
 fn transitionImageLayout(
