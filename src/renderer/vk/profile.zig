@@ -9,22 +9,28 @@ pub const EngineProfile = enum {
     roadmap2026,
 
     pub fn properties(self: EngineProfile) vp.VpProfileProperties {
-        var props = vp.VpProfileProperties{};
-        const name = switch (self) {
-            .minimal => blk: {
-                props.specVersion = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0);
+        const ProfileInfo = struct {
+            name: []const u8,
+            version: u32,
+        };
+
+        const info = switch (self) {
+            .minimal => ProfileInfo{
+                .name = std.mem.sliceTo(vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_NAME, 0),
+                .version = vp.VP_LUNARG_MINIMUM_REQUIREMENTS_1_3_SPEC_VERSION,
             },
-            .roadmap2024 => blk: {
-                props.specVersion = vp.VP_KHR_ROADMAP_2024_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2024_NAME, 0);
+            .roadmap2024 => ProfileInfo{
+                .name = std.mem.sliceTo(vp.VP_KHR_ROADMAP_2024_NAME, 0),
+                .version = vp.VP_KHR_ROADMAP_2024_SPEC_VERSION,
             },
-            .roadmap2026 => blk: {
-                props.specVersion = vp.VP_KHR_ROADMAP_2026_SPEC_VERSION;
-                break :blk std.mem.sliceTo(vp.VP_KHR_ROADMAP_2026_NAME, 0);
+            .roadmap2026 => ProfileInfo{
+                .name = std.mem.sliceTo(vp.VP_KHR_ROADMAP_2026_NAME, 0),
+                .version = vp.VP_KHR_ROADMAP_2026_SPEC_VERSION,
             },
         };
-        @memmove(props.profileName[0..name.len], name);
+
+        var props = vp.VpProfileProperties{ .specVersion = info.version };
+        @memmove(props.profileName[0..info.name.len], info.name);
         return props;
     }
 };
@@ -92,8 +98,8 @@ pub fn supportedProfile(
         var supported: vp.VkBool32 = vp.VK_FALSE;
         check(vp.vpGetPhysicalDeviceProfileSupport(
             capabilities,
-            toCInstance(instance.handle),
-            toCPhysicalDevice(pdev),
+            @ptrFromInt(@intFromEnum(instance.handle)),
+            @ptrFromInt(@intFromEnum(pdev)),
             &props,
             &supported,
         )) catch return error.VulkanError;
@@ -233,13 +239,13 @@ pub fn createDevice(
     var device: vp.VkDevice = null;
     try check(vp.vpCreateDevice(
         capabilities,
-        toCPhysicalDevice(pdev),
+        @ptrFromInt(@intFromEnum(pdev)),
         &profile_cinfo,
         null,
         &device,
     ));
 
-    return fromCDevice(device);
+    return @enumFromInt(@intFromPtr(device));
 }
 
 fn createCapabilities(base: vk.BaseWrapper, instance_api_version: u32, instance: vk.InstanceProxy) !vp.VpCapabilities {
@@ -287,23 +293,8 @@ fn check(result: vp.VkResult) !void {
         vp.VK_ERROR_INCOMPATIBLE_DRIVER => return error.VulkanProfileIncompatibleDriver,
         else => {
             std.log.err("Vulkan Profiles call failed with VkResult {}", .{result});
+            if (std.debug.runtime_safety) @panic("unexpected VkResult");
             return error.VulkanProfileFailed;
         },
     }
-}
-
-fn fromCInstance(handle: vp.VkInstance) vk.Instance {
-    return @enumFromInt(@intFromPtr(handle));
-}
-
-fn toCInstance(handle: vk.Instance) vp.VkInstance {
-    return @ptrFromInt(@intFromEnum(handle));
-}
-
-fn toCPhysicalDevice(handle: vk.PhysicalDevice) vp.VkPhysicalDevice {
-    return @ptrFromInt(@intFromEnum(handle));
-}
-
-fn fromCDevice(handle: vp.VkDevice) vk.Device {
-    return @enumFromInt(@intFromPtr(handle));
 }
