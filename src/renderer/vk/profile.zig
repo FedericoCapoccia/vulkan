@@ -28,12 +28,13 @@ var vulkan_functions = vp.VpVulkanFunctions{};
 
 pub fn supportedProfile(
     base: vk.BaseWrapper,
+    instance_api_version: u32,
     instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     requirements: *const EngineRequirements,
     allocator: std.mem.Allocator,
 ) error{ OutOfMemory, VulkanError }!?EngineProfile {
-    const capabilities = createCapabilities(base, instance) catch return error.VulkanError;
+    const capabilities = createCapabilities(base, instance_api_version, instance) catch return error.VulkanError;
     defer vp.vpDestroyCapabilities(capabilities, null);
 
     const candidates = [_]EngineProfile{
@@ -153,13 +154,14 @@ fn extensionName(extension: EngineExtension) [*:0]const u8 {
 
 pub fn createDevice(
     base: vk.BaseWrapper,
+    instance_api_version: u32,
     instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     queue_family: u32,
     engine_profile: EngineProfile,
     requirements: *const EngineRequirements,
 ) !vk.Device {
-    const capabilities = try createCapabilities(base, instance);
+    const capabilities = try createCapabilities(base, instance_api_version, instance);
     defer vp.vpDestroyCapabilities(capabilities, null);
 
     std.log.info("Creating logical device", .{});
@@ -222,7 +224,7 @@ pub fn createDevice(
     return fromCDevice(device);
 }
 
-fn createCapabilities(base: vk.BaseWrapper, instance: vk.InstanceProxy) !vp.VpCapabilities {
+fn createCapabilities(base: vk.BaseWrapper, instance_api_version: u32, instance: vk.InstanceProxy) !vp.VpCapabilities {
     vulkan_functions = vp.VpVulkanFunctions{
         .GetInstanceProcAddr = @ptrCast(base.dispatch.vkGetInstanceProcAddr),
         .GetDeviceProcAddr = @ptrCast(instance.wrapper.dispatch.vkGetDeviceProcAddr),
@@ -237,7 +239,7 @@ fn createCapabilities(base: vk.BaseWrapper, instance: vk.InstanceProxy) !vp.VpCa
         .CreateDevice = @ptrCast(instance.wrapper.dispatch.vkCreateDevice),
     };
     const cap_cinfo = vp.VpCapabilitiesCreateInfo{
-        .apiVersion = vk.API_VERSION_1_3.toU32(),
+        .apiVersion = instance_api_version,
         .pVulkanFunctions = &vulkan_functions,
     };
 

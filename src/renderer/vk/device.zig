@@ -11,6 +11,7 @@ pub const Device = struct {
 
 pub fn create(
     base: vk.BaseWrapper,
+    instance_api_version: u32,
     instance: vk.InstanceProxy,
     pdev: vk.PhysicalDevice,
     queue_families: QueueFamilies,
@@ -19,6 +20,7 @@ pub fn create(
 ) !Device {
     const handle = try profile.createDevice(
         base,
+        instance_api_version,
         instance,
         pdev,
         queue_families.graphics,

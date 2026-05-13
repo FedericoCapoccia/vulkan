@@ -100,6 +100,7 @@ pub const Renderer = struct {
 
         const device_bundle = try rvk.createDevice(
             info.ctx.base,
+            info.ctx.instance.api_version,
             instance,
             info.ctx.pdev.handle,
             info.ctx.pdev.queue_families,

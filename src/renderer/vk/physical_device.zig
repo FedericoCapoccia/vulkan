@@ -16,6 +16,7 @@ pub const PhysicalDevice = struct {
 
     pub const SelectInfo = struct {
         base: vk.BaseWrapper,
+        instance_api_version: u32,
         instance: vk.InstanceProxy,
         surface: vk.SurfaceKHR,
         requirements: *const profile.EngineRequirements,
@@ -51,7 +52,7 @@ pub const PhysicalDevice = struct {
 
             const queue_families = (try findQueueFamilies(info.instance, device, info.surface, info.allocator)) orelse continue;
 
-            const pf = try profile.supportedProfile(info.base, info.instance, device, info.requirements, info.allocator) orelse continue;
+            const pf = try profile.supportedProfile(info.base, info.instance_api_version, info.instance, device, info.requirements, info.allocator) orelse continue;
 
             const candidate = PhysicalDevice{
                 .handle = device,

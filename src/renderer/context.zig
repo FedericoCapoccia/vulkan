@@ -75,6 +75,7 @@ pub const VulkanContext = struct {
 
         const pdev = rvk.PhysicalDevice.select(&.{
             .base = base,
+            .instance_api_version = instance.api_version,
             .instance = instance_proxy,
             .surface = surface,
             .requirements = &requirements,

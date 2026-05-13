@@ -5,6 +5,7 @@ const vk = @import("vulkan");
 pub const Instance = struct {
     handle: vk.Instance,
     wrapper: vk.InstanceWrapper,
+    api_version: u32,
     debug_messenger: ?vk.DebugUtilsMessengerEXT,
 
     pub const InitInfo = struct {
@@ -78,6 +79,7 @@ pub const Instance = struct {
         var self = Instance{
             .handle = handle,
             .wrapper = vk.InstanceWrapper.load(handle, loader),
+            .api_version = instance_version,
             .debug_messenger = null,
         };
         const instance_proxy = vk.InstanceProxy.init(self.handle, &self.wrapper);
