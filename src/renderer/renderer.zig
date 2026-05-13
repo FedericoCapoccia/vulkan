@@ -92,7 +92,7 @@ comptime {
 
 const vertices = [_]Vertex{
     .{
-        .pos = .{ 0.0, -0.5 },
+        .pos = .{ -0.5, -0.5 },
         .color = .{ 1.0, 0.0, 0.0 },
     },
     .{
@@ -103,7 +103,13 @@ const vertices = [_]Vertex{
         .pos = .{ -0.5, 0.5 },
         .color = .{ 0.0, 0.0, 1.0 },
     },
+    .{
+        .pos = .{ 0.5, -0.5 },
+        .color = .{ 1.0, 1.0, 1.0 },
+    },
 };
+
+const indices = [_]u16{ 0, 1, 2, 0, 3, 1 };
 
 const VertexBuffer = struct {
     handle: vk.Buffer,
@@ -156,6 +162,65 @@ const VertexBuffer = struct {
     }
 
     pub fn deinit(self: *const VertexBuffer, device: *const rvk.Device) void {
+        vma.vmaDestroyBuffer(
+            device.vma,
+            @ptrFromInt(@intFromEnum(self.handle)),
+            self.allocation,
+        );
+    }
+};
+
+const IndexBuffer = struct {
+    handle: vk.Buffer,
+    allocation: vma.VmaAllocation,
+
+    pub fn create(
+        device: *const rvk.Device,
+        queue_family: u32,
+        queue: vk.QueueProxy,
+    ) !IndexBuffer {
+        const index_bytes = std.mem.sliceAsBytes(indices[0..]);
+
+        const staging = try AllocatedBuffer.create(
+            device,
+            index_bytes.len,
+            vma.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            vma.VMA_MEMORY_USAGE_CPU_TO_GPU,
+        );
+        defer staging.deinit(device);
+
+        try checkVma(vma.vmaCopyMemoryToAllocation(
+            device.vma,
+            @ptrCast(&indices),
+            staging.allocation,
+            0,
+            @intCast(index_bytes.len),
+        ));
+
+        const index = try AllocatedBuffer.create(
+            device,
+            index_bytes.len,
+            vma.VK_BUFFER_USAGE_TRANSFER_DST_BIT | vma.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            vma.VMA_MEMORY_USAGE_GPU_ONLY,
+        );
+        errdefer index.deinit(device);
+
+        try copyBuffer(
+            device.proxy(),
+            queue,
+            queue_family,
+            staging.handle,
+            index.handle,
+            @intCast(index_bytes.len),
+        );
+
+        return .{
+            .handle = index.handle,
+            .allocation = index.allocation,
+        };
+    }
+
+    pub fn deinit(self: *const IndexBuffer, device: *const rvk.Device) void {
         vma.vmaDestroyBuffer(
             device.vma,
             @ptrFromInt(@intFromEnum(self.handle)),
@@ -222,6 +287,7 @@ pub const Renderer = struct {
     shaders_dir_path: []const u8,
     graphics_pipeline: rvk.GraphicsPipeline,
     vertex_buffer: VertexBuffer,
+    index_buffer: IndexBuffer,
     frames: [max_frames_in_flight]FrameData,
     render_finished: []vk.Semaphore,
     current_frame: usize = 0,
@@ -298,6 +364,13 @@ pub const Renderer = struct {
         );
         errdefer vertex_buffer.deinit(&device);
 
+        const index_buffer = try IndexBuffer.create(
+            &device,
+            info.ctx.pdev.queue_families.graphics,
+            vk.QueueProxy.init(gq_handle, &device.wrapper),
+        );
+        errdefer index_buffer.deinit(&device);
+
         var frames: [max_frames_in_flight]FrameData = undefined;
         var frame_count: usize = 0;
         errdefer {
@@ -323,6 +396,7 @@ pub const Renderer = struct {
             .shaders_dir_path = shaders_dir_path,
             .graphics_pipeline = gp,
             .vertex_buffer = vertex_buffer,
+            .index_buffer = index_buffer,
             .frames = frames,
             .render_finished = render_finished,
         };
@@ -344,6 +418,7 @@ pub const Renderer = struct {
         }
 
         self.graphics_pipeline.deinit(device_proxy);
+        self.index_buffer.deinit(&self.device);
         self.vertex_buffer.deinit(&self.device);
         self.allocator.free(self.shaders_dir_path);
 
@@ -544,6 +619,7 @@ pub const Renderer = struct {
         const vertex_buffers = [_]vk.Buffer{self.vertex_buffer.handle};
         const vertex_offsets = [_]vk.DeviceSize{0};
         cmd.bindVertexBuffers(0, vertex_buffers[0..], vertex_offsets[0..]);
+        cmd.bindIndexBuffer(self.index_buffer.handle, 0, .uint16);
 
         const viewports = [_]vk.Viewport{.{
             .x = 0.0,
@@ -561,7 +637,7 @@ pub const Renderer = struct {
         }};
         cmd.setScissor(0, scissors[0..]);
 
-        cmd.draw(@intCast(vertices.len), 1, 0, 0);
+        cmd.drawIndexed(@intCast(indices.len), 1, 0, 0, 0);
 
         cmd.endRendering();
 
