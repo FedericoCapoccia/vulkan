@@ -109,17 +109,79 @@ const VertexBuffer = struct {
     handle: vk.Buffer,
     allocation: vma.VmaAllocation,
 
-    pub fn create(device: *const rvk.Device) !VertexBuffer {
+    pub fn create(
+        device: *const rvk.Device,
+        queue_family: u32,
+        queue: vk.QueueProxy,
+    ) !VertexBuffer {
         const vertex_bytes = std.mem.sliceAsBytes(vertices[0..]);
 
+        const staging = try AllocatedBuffer.create(
+            device,
+            vertex_bytes.len,
+            vma.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            vma.VMA_MEMORY_USAGE_CPU_TO_GPU,
+        );
+        defer staging.deinit(device);
+
+        try checkVma(vma.vmaCopyMemoryToAllocation(
+            device.vma,
+            @ptrCast(&vertices),
+            staging.allocation,
+            0,
+            @intCast(vertex_bytes.len),
+        ));
+
+        const vertex = try AllocatedBuffer.create(
+            device,
+            vertex_bytes.len,
+            vma.VK_BUFFER_USAGE_TRANSFER_DST_BIT | vma.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            vma.VMA_MEMORY_USAGE_GPU_ONLY,
+        );
+        errdefer vertex.deinit(device);
+
+        try copyBuffer(
+            device.proxy(),
+            queue,
+            queue_family,
+            staging.handle,
+            vertex.handle,
+            @intCast(vertex_bytes.len),
+        );
+
+        return .{
+            .handle = vertex.handle,
+            .allocation = vertex.allocation,
+        };
+    }
+
+    pub fn deinit(self: *const VertexBuffer, device: *const rvk.Device) void {
+        vma.vmaDestroyBuffer(
+            device.vma,
+            @ptrFromInt(@intFromEnum(self.handle)),
+            self.allocation,
+        );
+    }
+};
+
+const AllocatedBuffer = struct {
+    handle: vk.Buffer,
+    allocation: vma.VmaAllocation,
+
+    fn create(
+        device: *const rvk.Device,
+        size: usize,
+        usage: c_int,
+        memory_usage: c_int,
+    ) !AllocatedBuffer {
         const buffer_cinfo = vma.VkBufferCreateInfo{
             .sType = @intCast(vma.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO),
-            .size = @intCast(vertex_bytes.len),
-            .usage = @intCast(vma.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT),
+            .size = @intCast(size),
+            .usage = @intCast(usage),
             .sharingMode = @intCast(vma.VK_SHARING_MODE_EXCLUSIVE),
         };
         const allocation_cinfo = vma.VmaAllocationCreateInfo{
-            .usage = @intCast(vma.VMA_MEMORY_USAGE_CPU_TO_GPU),
+            .usage = @intCast(memory_usage),
         };
 
         var buffer: vma.VkBuffer = null;
@@ -134,14 +196,6 @@ const VertexBuffer = struct {
         ));
         errdefer vma.vmaDestroyBuffer(device.vma, buffer, allocation);
 
-        try checkVma(vma.vmaCopyMemoryToAllocation(
-            device.vma,
-            @ptrCast(&vertices),
-            allocation,
-            0,
-            @intCast(vertex_bytes.len),
-        ));
-
         const buffer_handle = buffer orelse return error.VmaError;
         return .{
             .handle = @enumFromInt(@intFromPtr(buffer_handle)),
@@ -149,7 +203,7 @@ const VertexBuffer = struct {
         };
     }
 
-    pub fn deinit(self: *const VertexBuffer, device: *const rvk.Device) void {
+    fn deinit(self: *const AllocatedBuffer, device: *const rvk.Device) void {
         vma.vmaDestroyBuffer(
             device.vma,
             @ptrFromInt(@intFromEnum(self.handle)),
@@ -237,7 +291,11 @@ pub const Renderer = struct {
         });
         errdefer gp.deinit(device_proxy);
 
-        const vertex_buffer = try VertexBuffer.create(&device);
+        const vertex_buffer = try VertexBuffer.create(
+            &device,
+            info.ctx.pdev.queue_families.graphics,
+            vk.QueueProxy.init(gq_handle, &device.wrapper),
+        );
         errdefer vertex_buffer.deinit(&device);
 
         var frames: [max_frames_in_flight]FrameData = undefined;
@@ -636,6 +694,53 @@ fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: st
     }
 
     return semaphores;
+}
+
+fn copyBuffer(
+    device: vk.DeviceProxy,
+    queue: vk.QueueProxy,
+    queue_family: u32,
+    src: vk.Buffer,
+    dst: vk.Buffer,
+    size: vk.DeviceSize,
+) !void {
+    const pool = try device.createCommandPool(&.{
+        .flags = .{ .transient_bit = true },
+        .queue_family_index = queue_family,
+    }, null);
+    defer device.destroyCommandPool(pool, null);
+
+    var buffers: [1]vk.CommandBuffer = undefined;
+    try device.allocateCommandBuffers(&.{
+        .command_pool = pool,
+        .level = .primary,
+        .command_buffer_count = 1,
+    }, buffers[0..].ptr);
+
+    const cmd = vk.CommandBufferProxy.init(buffers[0], device.wrapper);
+    try cmd.beginCommandBuffer(&.{
+        .flags = .{ .one_time_submit_bit = true },
+    });
+
+    const copy_regions = [_]vk.BufferCopy{.{
+        .src_offset = 0,
+        .dst_offset = 0,
+        .size = size,
+    }};
+    cmd.copyBuffer(src, dst, copy_regions[0..]);
+    try cmd.endCommandBuffer();
+
+    const command_buffers = [_]vk.CommandBufferSubmitInfo{.{
+        .command_buffer = buffers[0],
+        .device_mask = 0,
+    }};
+    const submit_info = [_]vk.SubmitInfo2{.{
+        .command_buffer_info_count = @intCast(command_buffers.len),
+        .p_command_buffer_infos = command_buffers[0..].ptr,
+    }};
+
+    try queue.submit2(submit_info[0..], .null_handle);
+    try queue.waitIdle();
 }
 
 fn checkVma(result: vma.VkResult) !void {
