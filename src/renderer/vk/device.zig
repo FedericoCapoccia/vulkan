@@ -21,6 +21,8 @@ pub const Device = struct {
 
     pub fn create(info: *const CreateInfo) !Device {
         const handle = try profile.createDevice(info.physical_device, info.requirements);
+        const wrapper = vk.DeviceWrapper.load(handle, info.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
+        errdefer wrapper.destroyDevice(handle, null);
 
         // TODO: add vma here
         const vkfn = vma.VmaVulkanFunctions{
@@ -40,17 +42,18 @@ pub const Device = struct {
         const res = vma.vmaCreateAllocator(&alloc_cinfo, &allocator);
         if (res != vma.VK_SUCCESS) {
             std.log.err("Failed to create VmaAllocator", .{});
+            return error.VmaError;
         }
 
         return Device{
             .handle = handle,
-            .wrapper = vk.DeviceWrapper.load(handle, info.instance.wrapper.dispatch.vkGetDeviceProcAddr.?),
+            .wrapper = wrapper,
             .vma = allocator,
         };
     }
 
     pub fn destroy(self: *Device) void {
-        vma.vmaDestroyAllocator(self.vma);
+        // vma.vmaDestroyAllocator(self.vma);
         self.proxy().destroyDevice(null);
     }
 
