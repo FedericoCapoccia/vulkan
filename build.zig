@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
 
     const vulkan_headers = b.dependency("vulkan_headers", .{});
     const registry = vulkan_headers.path("registry/vk.xml");
+    addGenerateVulkanProfilesStep(b, python, registry);
 
     const vulkan_zig = b.dependency("vulkan", .{
         .registry = registry,
@@ -23,10 +24,8 @@ pub fn build(b: *std.Build) void {
     });
     const profiles = addVulkanProfiles(.{
         .b = b,
-        .python = python,
         .target = target,
         .optimize = optimize,
-        .registry = registry,
         .vulkan_include = vulkan_headers.path("include"),
     });
 
@@ -52,11 +51,6 @@ pub fn build(b: *std.Build) void {
     mod.linkLibrary(vma.library);
     mod.linkLibrary(profiles.library);
     if (target.result.os.tag != .emscripten) {
-        const vulkan_loader = switch (target.result.os.tag) {
-            .windows => "vulkan-1",
-            else => "vulkan",
-        };
-        mod.linkSystemLibrary(vulkan_loader, .{});
         mod.linkLibrary(zglfw.artifact("glfw"));
     }
 
@@ -118,7 +112,13 @@ fn addVma(options: VmaOptions) Vma {
     lib_mod.addIncludePath(options.vulkan_include);
     lib_mod.addCSourceFile(.{
         .file = b.path("vendor/vma/vma_impl.cpp"),
-        .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti" },
+        .flags = &.{
+            "-std=c++17",
+            "-fno-exceptions",
+            "-fno-rtti",
+            "-DVMA_STATIC_VULKAN_FUNCTIONS=0",
+            "-DVMA_DYNAMIC_VULKAN_FUNCTIONS=1",
+        },
     });
 
     const library = b.addLibrary(.{
@@ -143,18 +143,15 @@ fn addVma(options: VmaOptions) Vma {
 
 const VulkanProfilesOptions = struct {
     b: *std.Build,
-    python: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    registry: std.Build.LazyPath,
     vulkan_include: std.Build.LazyPath,
 };
 
 fn addVulkanProfiles(options: VulkanProfilesOptions) VulkanProfiles {
     const b = options.b;
-    const generated = generateVulkanProfiles(b, options.python, options.registry);
-    const include_path = generated.path(b, "include");
-    const header = generated.path(b, "include/vulkan/vulkan_profiles.h");
+    const include_path = b.path("vendor/vulkan_profiles/generated/include");
+    const header = b.path("vendor/vulkan_profiles/generated/include/vulkan/vulkan_profiles.h");
 
     const lib_mod = b.createModule(.{
         .target = options.target,
@@ -164,8 +161,15 @@ fn addVulkanProfiles(options: VulkanProfilesOptions) VulkanProfiles {
     lib_mod.addIncludePath(include_path);
     lib_mod.addIncludePath(options.vulkan_include);
     lib_mod.addCSourceFile(.{
-        .file = generated.path(b, "src/vulkan_profiles.cpp"),
-        .flags = &.{ "-std=c++17", "-fno-exceptions", "-fno-rtti" },
+        .file = b.path("vendor/vulkan_profiles/generated/src/vulkan_profiles.cpp"),
+        .flags = &.{
+            "-std=c++17",
+            "-fno-exceptions",
+            "-fno-rtti",
+            "-DVK_NO_PROTOTYPES",
+            "-DVP_USE_OBJECT",
+            "-DVP_NO_STATIC_VULKAN_FUNCTIONS",
+        },
     });
 
     const library = b.addLibrary(.{
@@ -181,6 +185,8 @@ fn addVulkanProfiles(options: VulkanProfilesOptions) VulkanProfiles {
     });
     translate_c.addIncludePath(include_path);
     translate_c.addIncludePath(options.vulkan_include);
+    translate_c.defineCMacro("VK_NO_PROTOTYPES", null);
+    translate_c.defineCMacro("VP_USE_OBJECT", null);
 
     return .{
         .module = translate_c.createModule(),
@@ -188,15 +194,15 @@ fn addVulkanProfiles(options: VulkanProfilesOptions) VulkanProfiles {
     };
 }
 
-fn generateVulkanProfiles(
-    b: *std.Build,
-    python: []const u8,
-    registry: std.Build.LazyPath,
-) std.Build.LazyPath {
+fn addGenerateVulkanProfilesStep(b: *std.Build, python: []const u8, registry: std.Build.LazyPath) void {
+    const step = b.step("generate-vulkan-profiles", "Generate Vulkan Profiles C API files into vendor");
+
     const cmd = b.addSystemCommand(&.{ python, "-W", "ignore::DeprecationWarning", "-c" });
     cmd.addArg(
-        \\import os, runpy, sys
+        \\import os, runpy, shutil, sys
         \\out_dir, registry_path, input_dir, script = sys.argv[1:5]
+        \\if os.path.exists(out_dir):
+        \\    shutil.rmtree(out_dir)
         \\include_dir = os.path.join(out_dir, "include", "vulkan")
         \\src_dir = os.path.join(out_dir, "src")
         \\os.makedirs(include_dir, exist_ok=True)
@@ -210,13 +216,12 @@ fn generateVulkanProfiles(
         \\]
         \\runpy.run_path(script, run_name="__main__")
     );
-
-    const output = cmd.addOutputDirectoryArg("vulkan_profiles");
+    cmd.addArg("vendor/vulkan_profiles/generated");
     cmd.addFileArg(registry);
     cmd.addDirectoryArg(b.path("vendor/vulkan_profiles/profiles"));
     cmd.addFileArg(b.path("vendor/vulkan_profiles/gen_profiles_solution.py"));
 
-    return output;
+    step.dependOn(&cmd.step);
 }
 
 fn addShaderInstallSteps(b: *std.Build, shaders_step: *std.Build.Step, slangc: []const u8) void {

@@ -19,6 +19,7 @@ const enable_validation = switch (@import("builtin").mode) {
 };
 
 pub const VulkanContext = struct {
+    base: vk.BaseWrapper,
     instance: rvk.Instance,
     surface: vk.SurfaceKHR,
     pdev: rvk.PhysicalDevice,
@@ -73,6 +74,7 @@ pub const VulkanContext = struct {
         errdefer instance_proxy.destroySurfaceKHR(surface, null);
 
         const pdev = rvk.PhysicalDevice.select(&.{
+            .base = base,
             .instance = instance_proxy,
             .surface = surface,
             .requirements = &requirements,
@@ -83,6 +85,7 @@ pub const VulkanContext = struct {
         };
 
         return VulkanContext{
+            .base = base,
             .instance = instance,
             .surface = surface,
             .pdev = pdev,

@@ -99,6 +99,7 @@ pub const Renderer = struct {
         const instance = info.ctx.instance.proxy();
 
         const device_bundle = try rvk.createDevice(
+            info.ctx.base,
             instance,
             info.ctx.pdev.handle,
             info.ctx.pdev.queue_families,
