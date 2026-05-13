@@ -136,8 +136,8 @@ pub fn supportedProfile(
     return null;
 }
 
-pub fn createDevice(instance: Instance, physical_device: PhysicalDevice, requirements: *const EngineRequirements) !vk.Device {
-    const capabilities = try createCapabilities(instance.api_version);
+pub fn createDevice(physical_device: PhysicalDevice, requirements: *const EngineRequirements) !vk.Device {
+    const capabilities = try createCapabilities(physical_device.api_version);
     defer vp.vpDestroyCapabilities(capabilities, null);
 
     std.log.info("Creating logical device", .{});

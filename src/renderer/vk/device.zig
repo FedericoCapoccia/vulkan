@@ -1,4 +1,7 @@
+const std = @import("std");
+
 const vk = @import("vulkan");
+const vma = @import("vma");
 
 const Instance = @import("instance.zig").Instance;
 const PhysicalDevice = @import("physical_device.zig").PhysicalDevice;
@@ -7,6 +10,7 @@ const profile = @import("profile.zig");
 pub const Device = struct {
     handle: vk.Device,
     wrapper: vk.DeviceWrapper,
+    vma: vma.VmaAllocator,
 
     pub const CreateInfo = struct {
         base: vk.BaseWrapper,
@@ -16,17 +20,37 @@ pub const Device = struct {
     };
 
     pub fn create(info: *const CreateInfo) !Device {
-        const handle = try profile.createDevice(info.instance, info.physical_device, info.requirements);
+        const handle = try profile.createDevice(info.physical_device, info.requirements);
 
         // TODO: add vma here
+        const vkfn = vma.VmaVulkanFunctions{
+            .vkGetInstanceProcAddr = @ptrCast(info.base.dispatch.vkGetInstanceProcAddr),
+            .vkGetDeviceProcAddr = @ptrCast(info.instance.wrapper.dispatch.vkGetDeviceProcAddr),
+        };
+
+        const alloc_cinfo = vma.VmaAllocatorCreateInfo{
+            .instance = @ptrFromInt(@intFromEnum(info.instance.handle)),
+            .physicalDevice = @ptrFromInt(@intFromEnum(info.physical_device.handle)),
+            .device = @ptrFromInt(@intFromEnum(handle)),
+            .vulkanApiVersion = info.physical_device.api_version,
+            .pVulkanFunctions = &vkfn,
+        };
+
+        var allocator: vma.VmaAllocator = undefined;
+        const res = vma.vmaCreateAllocator(&alloc_cinfo, &allocator);
+        if (res != vma.VK_SUCCESS) {
+            std.log.err("Failed to create VmaAllocator", .{});
+        }
 
         return Device{
             .handle = handle,
             .wrapper = vk.DeviceWrapper.load(handle, info.instance.wrapper.dispatch.vkGetDeviceProcAddr.?),
+            .vma = allocator,
         };
     }
 
     pub fn destroy(self: *Device) void {
+        vma.vmaDestroyAllocator(self.vma);
         self.proxy().destroyDevice(null);
     }
 

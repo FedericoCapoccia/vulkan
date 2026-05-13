@@ -13,6 +13,7 @@ pub const QueueFamilies = struct {
 
 pub const PhysicalDevice = struct {
     handle: vk.PhysicalDevice,
+    api_version: u32,
     queue_families: QueueFamilies,
     profile: profile.EngineProfile,
 
@@ -60,6 +61,7 @@ pub const PhysicalDevice = struct {
 
             const candidate = PhysicalDevice{
                 .handle = device,
+                .api_version = props.properties.api_version,
                 .queue_families = queue_families,
                 .profile = pf,
             };

@@ -134,6 +134,8 @@ fn addVma(options: VmaOptions) Vma {
     });
     translate_c.addIncludePath(b.path("vendor/vma"));
     translate_c.addIncludePath(options.vulkan_include);
+    translate_c.defineCMacro("VMA_STATIC_VULKAN_FUNCTIONS", "0");
+    translate_c.defineCMacro("VMA_DYNAMIC_VULKAN_FUNCTIONS", "1");
 
     return .{
         .module = translate_c.createModule(),
