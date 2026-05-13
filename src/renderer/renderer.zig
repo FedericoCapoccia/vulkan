@@ -80,6 +80,21 @@ pub const Renderer = struct {
         allocator: std.mem.Allocator,
     };
 
+    pub const DrawFrameError = error{
+        FrameSyncFailed,
+        AcquireFailed,
+        CommandRecordingFailed,
+        SubmitFailed,
+        PresentFailed,
+        SwapchainRecreateFailed,
+    };
+
+    pub const DrawFrameResult = enum {
+        rendered,
+        skipped,
+        window_closed,
+    };
+
     pub fn init(info: InitInfo) !Renderer {
         const instance = info.ctx.instance.proxy();
 
@@ -184,14 +199,20 @@ pub const Renderer = struct {
         self.framebuffer_resized = true;
     }
 
-    pub fn drawFrame(self: *Renderer, window: *glfw.Window) !void {
+    pub fn drawFrame(self: *Renderer, window: *glfw.Window) DrawFrameError!DrawFrameResult {
         const dev = self.device();
         const graphics_queue = self.graphicsQueue();
         const frame = &self.frames[self.current_frame];
 
         const fences = [_]vk.Fence{frame.in_flight};
-        const wait_result = try dev.waitForFences(fences[0..], .true, std.math.maxInt(u64));
-        if (wait_result != .success) return error.WaitForFrameFenceFailed;
+        const wait_result = dev.waitForFences(fences[0..], .true, std.math.maxInt(u64)) catch |err| {
+            std.log.err("Failed to wait for frame fence: {}", .{err});
+            return error.FrameSyncFailed;
+        };
+        if (wait_result != .success) {
+            std.log.err("Frame fence wait returned {s}", .{@tagName(wait_result)});
+            return error.FrameSyncFailed;
+        }
 
         const acquire = dev.acquireNextImageKHR(
             self.swapchain.handle,
@@ -201,20 +222,32 @@ pub const Renderer = struct {
         ) catch |err| switch (err) {
             error.OutOfDateKHR => {
                 self.recreateSwapchain(window) catch |recreate_err| switch (recreate_err) {
-                    error.WindowClosed => return,
-                    else => return recreate_err,
+                    error.WindowClosed => return .window_closed,
+                    else => {
+                        std.log.err("Failed to recreate swapchain after image acquire: {}", .{recreate_err});
+                        return error.SwapchainRecreateFailed;
+                    },
                 };
-                return;
+                return .skipped;
             },
-            else => return err,
+            else => {
+                std.log.err("Failed to acquire swapchain image: {}", .{err});
+                return error.AcquireFailed;
+            },
         };
 
         const should_recreate = self.framebuffer_resized or acquire.result == .suboptimal_khr;
 
-        try dev.resetCommandPool(frame.command_pool, .{});
+        dev.resetCommandPool(frame.command_pool, .{}) catch |err| {
+            std.log.err("Failed to reset frame command pool: {}", .{err});
+            return error.CommandRecordingFailed;
+        };
 
         const cmd = frame.cmd(dev);
-        try self.recordCommandBuffer(cmd, acquire.image_index);
+        self.recordCommandBuffer(cmd, acquire.image_index) catch |err| {
+            std.log.err("Failed to record frame command buffer: {}", .{err});
+            return error.CommandRecordingFailed;
+        };
         const render_finished = self.render_finished[acquire.image_index];
 
         const command_buffers = [_]vk.CommandBufferSubmitInfo{.{
@@ -245,8 +278,14 @@ pub const Renderer = struct {
             .p_signal_semaphore_infos = signal_semaphores[0..].ptr,
         }};
 
-        try dev.resetFences(fences[0..]);
-        try graphics_queue.submit2(submit_info[0..], frame.in_flight);
+        dev.resetFences(fences[0..]) catch |err| {
+            std.log.err("Failed to reset frame fence: {}", .{err});
+            return error.FrameSyncFailed;
+        };
+        graphics_queue.submit2(submit_info[0..], frame.in_flight) catch |err| {
+            std.log.err("Failed to submit frame commands: {}", .{err});
+            return error.SubmitFailed;
+        };
 
         const present_wait_semaphores = [_]vk.Semaphore{render_finished};
         const present_swapchains = [_]vk.SwapchainKHR{self.swapchain.handle};
@@ -262,15 +301,22 @@ pub const Renderer = struct {
         const present_result = graphics_queue.presentKHR(&present_info) catch |err| switch (err) {
             error.OutOfDateKHR => {
                 self.recreateSwapchain(window) catch |recreate_err| switch (recreate_err) {
-                    error.WindowClosed => return,
-                    else => return recreate_err,
+                    error.WindowClosed => return .window_closed,
+                    else => {
+                        std.log.err("Failed to recreate swapchain after present: {}", .{recreate_err});
+                        return error.SwapchainRecreateFailed;
+                    },
                 };
-                return;
+                return .skipped;
             },
-            else => return err,
+            else => {
+                std.log.err("Failed to present frame: {}", .{err});
+                return error.PresentFailed;
+            },
         };
 
         if (present_result != .success and present_result != .suboptimal_khr) {
+            std.log.err("Present returned {s}", .{@tagName(present_result)});
             return error.PresentFailed;
         }
 
@@ -278,10 +324,15 @@ pub const Renderer = struct {
 
         if (present_result == .suboptimal_khr or should_recreate) {
             self.recreateSwapchain(window) catch |err| switch (err) {
-                error.WindowClosed => return,
-                else => return err,
+                error.WindowClosed => return .window_closed,
+                else => {
+                    std.log.err("Failed to recreate swapchain after frame: {}", .{err});
+                    return error.SwapchainRecreateFailed;
+                },
             };
         }
+
+        return .rendered;
     }
 
     fn recordCommandBuffer(self: *Renderer, cmd: vk.CommandBufferProxy, image_index: u32) !void {

@@ -25,11 +25,11 @@ pub const Instance = struct {
     pub fn init(info: *const InitInfo) InitError!Instance {
         const instance_version = info.base.enumerateInstanceVersion() catch |err| {
             std.log.err("Failed to enumerate instance version: {}", .{err});
-            return InitError.VulkanError;
+            return error.VulkanError;
         };
 
         if (instance_version < vk.API_VERSION_1_3.toU32()) {
-            return InitError.UnsupportedVulkanVersion;
+            return error.UnsupportedVulkanVersion;
         }
 
         const version: vk.Version = @bitCast(instance_version);
@@ -38,14 +38,14 @@ pub const Instance = struct {
         const available_ext = info.base.enumerateInstanceExtensionPropertiesAlloc(null, info.allocator) catch |err| {
             std.log.err("Failed to enumerate available instance extensions: {}", .{err});
             return switch (err) {
-                error.OutOfMemory => InitError.OutOfMemory,
-                else => InitError.VulkanError,
+                error.OutOfMemory => error.OutOfMemory,
+                else => error.VulkanError,
             };
         };
         defer info.allocator.free(available_ext);
 
         if (!checkExtensions(available_ext, info.extensions)) {
-            return InitError.UnsupportedExtension;
+            return error.UnsupportedExtension;
         }
 
         const messenger_cinfo = messengerCreateInfo();
@@ -72,7 +72,7 @@ pub const Instance = struct {
 
         const handle = info.base.createInstance(&cinfo, null) catch |err| {
             std.log.err("Failed to create VkInstance: {}", .{err});
-            return InitError.VulkanError;
+            return error.VulkanError;
         };
 
         var self = Instance{

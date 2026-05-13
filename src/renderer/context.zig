@@ -39,7 +39,7 @@ pub const VulkanContext = struct {
 
         const glfw_ext = glfw.getRequiredInstanceExtensions() catch |err| {
             std.log.err("Failed to get required GLFW instance extensions: {}", .{err});
-            return InitError.InstanceInitFailed;
+            return error.InstanceInitFailed;
         };
         try instance_extensions.appendSlice(allocator, glfw_ext);
 

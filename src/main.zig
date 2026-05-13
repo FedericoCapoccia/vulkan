@@ -46,7 +46,15 @@ pub fn main(init: std.process.Init) !void {
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
-        try renderer.drawFrame(window);
+        const frame_result = renderer.drawFrame(window) catch |err| {
+            std.log.err("Fatal renderer frame error: {}", .{err});
+            return error.RendererFrameFailed;
+        };
+
+        switch (frame_result) {
+            .rendered, .skipped => {},
+            .window_closed => break,
+        }
     }
 }
 

@@ -32,8 +32,8 @@ pub const PhysicalDevice = struct {
         const devices = info.instance.enumeratePhysicalDevicesAlloc(info.allocator) catch |err| {
             std.log.err("Failed to enumerate available physical devices: {}", .{err});
             return switch (err) {
-                error.OutOfMemory => SelectError.OutOfMemory,
-                else => SelectError.VulkanError,
+                error.OutOfMemory => error.OutOfMemory,
+                else => error.VulkanError,
             };
         };
         defer info.allocator.free(devices);
