@@ -8,6 +8,8 @@ pub const GraphicsPipeline = struct {
         device: vk.DeviceProxy,
         shader: vk.ShaderModule,
         format: vk.Format,
+        binding_desc: vk.VertexInputBindingDescription,
+        binding_attr: []const vk.VertexInputAttributeDescription,
     };
 
     pub fn create(info: CreateInfo) !GraphicsPipeline {
@@ -24,7 +26,13 @@ pub const GraphicsPipeline = struct {
             },
         };
 
-        const vertex_input_state = vk.PipelineVertexInputStateCreateInfo{};
+        const binding_descriptions = [_]vk.VertexInputBindingDescription{info.binding_desc};
+        const vertex_input_state = vk.PipelineVertexInputStateCreateInfo{
+            .vertex_binding_description_count = @intCast(binding_descriptions.len),
+            .p_vertex_binding_descriptions = binding_descriptions[0..].ptr,
+            .vertex_attribute_description_count = @intCast(info.binding_attr.len),
+            .p_vertex_attribute_descriptions = info.binding_attr[0..].ptr,
+        };
 
         const input_assembly_state = vk.PipelineInputAssemblyStateCreateInfo{
             .topology = .triangle_list,

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
+const vma = @import("vma");
 
 const rvk = @import("vk.zig");
 const VulkanContext = @import("context.zig").VulkanContext;
@@ -57,6 +58,106 @@ const FrameData = struct {
     }
 };
 
+const Vertex = extern struct {
+    pos: [2]f32,
+    color: [3]f32,
+
+    const binding_description = vk.VertexInputBindingDescription{
+        .binding = 0,
+        .stride = @sizeOf(Vertex),
+        .input_rate = .vertex,
+    };
+
+    const attribute_descriptions = [_]vk.VertexInputAttributeDescription{
+        .{
+            .binding = 0,
+            .location = 0,
+            .format = .r32g32_sfloat,
+            .offset = @offsetOf(Vertex, "pos"),
+        },
+        .{
+            .binding = 0,
+            .location = 1,
+            .format = .r32g32b32_sfloat,
+            .offset = @offsetOf(Vertex, "color"),
+        },
+    };
+};
+
+comptime {
+    std.debug.assert(@sizeOf(Vertex) == 20);
+    std.debug.assert(@offsetOf(Vertex, "pos") == 0);
+    std.debug.assert(@offsetOf(Vertex, "color") == 8);
+}
+
+const vertices = [_]Vertex{
+    .{
+        .pos = .{ 0.0, -0.5 },
+        .color = .{ 1.0, 0.0, 0.0 },
+    },
+    .{
+        .pos = .{ 0.5, 0.5 },
+        .color = .{ 0.0, 1.0, 0.0 },
+    },
+    .{
+        .pos = .{ -0.5, 0.5 },
+        .color = .{ 0.0, 0.0, 1.0 },
+    },
+};
+
+const VertexBuffer = struct {
+    handle: vk.Buffer,
+    allocation: vma.VmaAllocation,
+
+    pub fn create(device: *const rvk.Device) !VertexBuffer {
+        const vertex_bytes = std.mem.sliceAsBytes(vertices[0..]);
+
+        const buffer_cinfo = vma.VkBufferCreateInfo{
+            .sType = @intCast(vma.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO),
+            .size = @intCast(vertex_bytes.len),
+            .usage = @intCast(vma.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT),
+            .sharingMode = @intCast(vma.VK_SHARING_MODE_EXCLUSIVE),
+        };
+        const allocation_cinfo = vma.VmaAllocationCreateInfo{
+            .usage = @intCast(vma.VMA_MEMORY_USAGE_CPU_TO_GPU),
+        };
+
+        var buffer: vma.VkBuffer = null;
+        var allocation: vma.VmaAllocation = null;
+        try checkVma(vma.vmaCreateBuffer(
+            device.vma,
+            &buffer_cinfo,
+            &allocation_cinfo,
+            &buffer,
+            &allocation,
+            null,
+        ));
+        errdefer vma.vmaDestroyBuffer(device.vma, buffer, allocation);
+
+        try checkVma(vma.vmaCopyMemoryToAllocation(
+            device.vma,
+            @ptrCast(&vertices),
+            allocation,
+            0,
+            @intCast(vertex_bytes.len),
+        ));
+
+        const buffer_handle = buffer orelse return error.VmaError;
+        return .{
+            .handle = @enumFromInt(@intFromPtr(buffer_handle)),
+            .allocation = allocation,
+        };
+    }
+
+    pub fn deinit(self: *const VertexBuffer, device: *const rvk.Device) void {
+        vma.vmaDestroyBuffer(
+            device.vma,
+            @ptrFromInt(@intFromEnum(self.handle)),
+            self.allocation,
+        );
+    }
+};
+
 pub const Renderer = struct {
     ctx: *const VulkanContext,
     io: std.Io,
@@ -66,6 +167,7 @@ pub const Renderer = struct {
     swapchain: rvk.Swapchain,
     shaders_dir_path: []const u8,
     graphics_pipeline: rvk.GraphicsPipeline,
+    vertex_buffer: VertexBuffer,
     frames: [max_frames_in_flight]FrameData,
     render_finished: []vk.Semaphore,
     current_frame: usize = 0,
@@ -130,8 +232,13 @@ pub const Renderer = struct {
             .device = device_proxy,
             .shader = triangle_shader,
             .format = swapchain.format.format,
+            .binding_desc = Vertex.binding_description,
+            .binding_attr = &Vertex.attribute_descriptions,
         });
         errdefer gp.deinit(device_proxy);
+
+        const vertex_buffer = try VertexBuffer.create(&device);
+        errdefer vertex_buffer.deinit(&device);
 
         var frames: [max_frames_in_flight]FrameData = undefined;
         var frame_count: usize = 0;
@@ -157,6 +264,7 @@ pub const Renderer = struct {
             .swapchain = swapchain,
             .shaders_dir_path = shaders_dir_path,
             .graphics_pipeline = gp,
+            .vertex_buffer = vertex_buffer,
             .frames = frames,
             .render_finished = render_finished,
         };
@@ -178,6 +286,7 @@ pub const Renderer = struct {
         }
 
         self.graphics_pipeline.deinit(device_proxy);
+        self.vertex_buffer.deinit(&self.device);
         self.allocator.free(self.shaders_dir_path);
 
         self.swapchain.deinit(device_proxy);
@@ -374,6 +483,10 @@ pub const Renderer = struct {
 
         cmd.bindPipeline(.graphics, self.graphics_pipeline.handle);
 
+        const vertex_buffers = [_]vk.Buffer{self.vertex_buffer.handle};
+        const vertex_offsets = [_]vk.DeviceSize{0};
+        cmd.bindVertexBuffers(0, vertex_buffers[0..], vertex_offsets[0..]);
+
         const viewports = [_]vk.Viewport{.{
             .x = 0.0,
             .y = 0.0,
@@ -390,7 +503,7 @@ pub const Renderer = struct {
         }};
         cmd.setScissor(0, scissors[0..]);
 
-        cmd.draw(3, 1, 0, 0);
+        cmd.draw(@intCast(vertices.len), 1, 0, 0);
 
         cmd.endRendering();
 
@@ -453,6 +566,8 @@ pub const Renderer = struct {
                 .device = dev,
                 .shader = triangle_shader,
                 .format = new_swapchain.format.format,
+                .binding_desc = Vertex.binding_description,
+                .binding_attr = &Vertex.attribute_descriptions,
             });
         }
 
@@ -521,6 +636,13 @@ fn createRenderSemaphores(dev: vk.DeviceProxy, image_count: usize, allocator: st
     }
 
     return semaphores;
+}
+
+fn checkVma(result: vma.VkResult) !void {
+    if (result != vma.VK_SUCCESS) {
+        std.log.err("VMA call failed with VkResult {}", .{result});
+        return error.VmaError;
+    }
 }
 
 fn transitionImageLayout(
