@@ -24,7 +24,6 @@ pub const Device = struct {
         const wrapper = vk.DeviceWrapper.load(handle, info.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
         errdefer wrapper.destroyDevice(handle, null);
 
-        // TODO: add vma here
         const vkfn = vma.VmaVulkanFunctions{
             .vkGetInstanceProcAddr = @ptrCast(info.base.dispatch.vkGetInstanceProcAddr),
             .vkGetDeviceProcAddr = @ptrCast(info.instance.wrapper.dispatch.vkGetDeviceProcAddr),
