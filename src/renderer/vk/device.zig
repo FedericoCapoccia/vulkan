@@ -9,6 +9,7 @@ pub const Device = struct {
     wrapper: vk.DeviceWrapper,
 
     pub const CreateInfo = struct {
+        base: vk.BaseWrapper,
         instance: Instance,
         physical_device: PhysicalDevice,
         requirements: *const profile.EngineRequirements,

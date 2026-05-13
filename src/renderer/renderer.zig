@@ -98,6 +98,7 @@ pub const Renderer = struct {
         const instance = info.ctx.instance.proxy();
 
         var device = try rvk.Device.create(&.{
+            .base = info.ctx.base,
             .instance = info.ctx.instance,
             .physical_device = info.ctx.pdev,
             .requirements = &info.ctx.requirements,
@@ -180,7 +181,7 @@ pub const Renderer = struct {
         self.allocator.free(self.shaders_dir_path);
 
         self.swapchain.deinit(device_proxy);
-        device_proxy.destroyDevice(null);
+        self.device.destroy();
     }
 
     pub fn graphicsQueue(self: *const Renderer) vk.QueueProxy {
