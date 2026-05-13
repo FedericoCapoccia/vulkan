@@ -52,7 +52,7 @@ pub const Device = struct {
     }
 
     pub fn destroy(self: *Device) void {
-        // vma.vmaDestroyAllocator(self.vma);
+        vma.vmaDestroyAllocator(self.vma);
         self.proxy().destroyDevice(null);
     }
 
