@@ -4,6 +4,7 @@ const glfw = @import("zglfw");
 const vkr = @import("renderer.zig");
 
 pub fn main(init: std.process.Init) !void {
+    _ = glfw.setErrorCallback(glfwErrorCallback);
     glfw.init() catch |err| {
         std.log.err("Failed to initialize GLFW: {}", .{err});
         return error.GLFWError;
@@ -55,6 +56,12 @@ pub fn main(init: std.process.Init) !void {
             .rendered, .skipped => {},
             .window_closed => break,
         }
+    }
+}
+
+fn glfwErrorCallback(err: i32, message: ?[*:0]const u8) callconv(.c) void {
+    if (message) |msg| {
+        std.log.err("GLFW error [{}]: '{s}'", .{ err, msg });
     }
 }
 
