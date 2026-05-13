@@ -68,7 +68,6 @@ pub const EngineRequirements = struct {
 };
 
 const max_extra_device_extensions = @typeInfo(EngineExtension).@"enum".fields.len;
-var vulkan_functions = vp.VpVulkanFunctions{};
 
 pub fn supportedProfile(
     base: vk.BaseWrapper,
@@ -244,7 +243,7 @@ pub fn createDevice(
 }
 
 fn createCapabilities(base: vk.BaseWrapper, instance_api_version: u32, instance: vk.InstanceProxy) !vp.VpCapabilities {
-    vulkan_functions = vp.VpVulkanFunctions{
+    const vulkan_functions = vp.VpVulkanFunctions{
         .GetInstanceProcAddr = @ptrCast(base.dispatch.vkGetInstanceProcAddr),
         .GetDeviceProcAddr = @ptrCast(instance.wrapper.dispatch.vkGetDeviceProcAddr),
         .EnumerateInstanceVersion = @ptrCast(base.dispatch.vkEnumerateInstanceVersion),

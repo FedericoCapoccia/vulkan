@@ -46,7 +46,7 @@ const FrameData = struct {
         };
     }
 
-    pub fn deinit(self: *const FrameData, device: vk.DeviceProxy) void {
+    pub fn deinit(self: *FrameData, device: vk.DeviceProxy) void {
         device.destroySemaphore(self.image_available, null);
         device.destroyFence(self.in_flight, null);
         device.destroyCommandPool(self.command_pool, null);
@@ -207,7 +207,7 @@ pub const Renderer = struct {
         const frame = &self.frames[self.current_frame];
 
         const fences = [_]vk.Fence{frame.in_flight};
-        const wait_result = dev.waitForFences(fences[0..], .true, std.math.maxInt(u64)) catch |err| {
+        const wait_result = dev.waitForFences(fences[0..], .true, 1000000) catch |err| {
             std.log.err("Failed to wait for frame fence: {}", .{err});
             return error.FrameSyncFailed;
         };
