@@ -53,7 +53,7 @@ pub const VulkanContext = struct {
             .extra_features = extra_features[0..],
         };
 
-        var instance = rvk.Instance.init(&.{
+        var instance = rvk.Instance.create(&.{
             .base = base,
             .enable_messenger = enable_validation,
             .extensions = instance_extensions.items,
@@ -62,9 +62,10 @@ pub const VulkanContext = struct {
             std.log.err("Failed to initialize Vulkan instance: {}", .{err});
             return error.InstanceInitFailed;
         };
-        errdefer instance.deinit();
+        errdefer instance.destroy();
 
         const instance_proxy = instance.proxy();
+        rvk.initializeProfile(base, instance_proxy);
 
         var surface: vk.SurfaceKHR = .null_handle;
         glfw.createWindowSurface(instance.handle, window, null, &surface) catch |err| {
@@ -75,8 +76,7 @@ pub const VulkanContext = struct {
 
         const pdev = rvk.PhysicalDevice.select(&.{
             .base = base,
-            .instance_api_version = instance.api_version,
-            .instance = instance_proxy,
+            .instance = instance,
             .surface = surface,
             .requirements = &requirements,
             .allocator = allocator,
@@ -96,6 +96,6 @@ pub const VulkanContext = struct {
 
     pub fn deinit(self: *VulkanContext) void {
         self.instance.proxy().destroySurfaceKHR(self.surface, null);
-        self.instance.deinit();
+        self.instance.destroy();
     }
 };

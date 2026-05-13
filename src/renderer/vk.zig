@@ -1,5 +1,5 @@
 const device = @import("vk/device.zig");
-pub const createDevice = device.create;
+pub const Device = device.Device;
 const instance = @import("vk/instance.zig");
 pub const Instance = instance.Instance;
 const physical_device = @import("vk/physical_device.zig");
@@ -8,6 +8,7 @@ pub const QueueFamilies = physical_device.QueueFamilies;
 const pipeline = @import("vk/pipeline.zig");
 pub const GraphicsPipeline = pipeline.GraphicsPipeline;
 const profile = @import("vk/profile.zig");
+pub const initializeProfile = profile.init;
 pub const EngineRequirements = profile.EngineRequirements;
 pub const EngineFeature = profile.EngineFeature;
 pub const EngineExtension = profile.EngineExtension;

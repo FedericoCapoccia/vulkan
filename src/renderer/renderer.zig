@@ -61,8 +61,7 @@ pub const Renderer = struct {
     ctx: *const VulkanContext,
     io: std.Io,
     allocator: std.mem.Allocator,
-    device_handle: vk.Device,
-    device_wrapper: vk.DeviceWrapper,
+    device: rvk.Device,
     graphics_queue_handle: vk.Queue,
     swapchain: rvk.Swapchain,
     shaders_dir_path: []const u8,
@@ -98,18 +97,14 @@ pub const Renderer = struct {
     pub fn init(info: InitInfo) !Renderer {
         const instance = info.ctx.instance.proxy();
 
-        const device_bundle = try rvk.createDevice(
-            info.ctx.base,
-            info.ctx.instance.api_version,
-            instance,
-            info.ctx.pdev.handle,
-            info.ctx.pdev.queue_families,
-            info.ctx.pdev.profile,
-            &info.ctx.requirements,
-        );
-        const device_proxy = vk.DeviceProxy.init(device_bundle.handle, &device_bundle.wrapper);
-        errdefer device_proxy.destroyDevice(null);
+        var device = try rvk.Device.create(&.{
+            .instance = info.ctx.instance,
+            .physical_device = info.ctx.pdev,
+            .requirements = &info.ctx.requirements,
+        });
+        errdefer device.destroy();
 
+        const device_proxy = device.proxy();
         const gq_handle = device_proxy.getDeviceQueue(info.ctx.pdev.queue_families.graphics, 0);
 
         const swapchain = try rvk.Swapchain.create(&.{
@@ -156,8 +151,7 @@ pub const Renderer = struct {
             .ctx = info.ctx,
             .io = info.io,
             .allocator = info.allocator,
-            .device_handle = device_bundle.handle,
-            .device_wrapper = device_bundle.wrapper,
+            .device = device,
             .graphics_queue_handle = gq_handle,
             .swapchain = swapchain,
             .shaders_dir_path = shaders_dir_path,
@@ -168,7 +162,7 @@ pub const Renderer = struct {
     }
 
     pub fn deinit(self: *Renderer) void {
-        const device_proxy = self.device();
+        const device_proxy = self.device.proxy();
         device_proxy.deviceWaitIdle() catch |err| {
             std.log.err("Failed to wait for Vulkan device idle during teardown: {}", .{err});
         };
@@ -189,12 +183,8 @@ pub const Renderer = struct {
         device_proxy.destroyDevice(null);
     }
 
-    pub fn device(self: *const Renderer) vk.DeviceProxy {
-        return vk.DeviceProxy.init(self.device_handle, &self.device_wrapper);
-    }
-
     pub fn graphicsQueue(self: *const Renderer) vk.QueueProxy {
-        return vk.QueueProxy.init(self.graphics_queue_handle, &self.device_wrapper);
+        return vk.QueueProxy.init(self.graphics_queue_handle, &self.device.wrapper);
     }
 
     pub fn requestResize(self: *Renderer) void {
@@ -202,12 +192,12 @@ pub const Renderer = struct {
     }
 
     pub fn drawFrame(self: *Renderer, window: *glfw.Window) DrawFrameError!DrawFrameResult {
-        const dev = self.device();
+        const dev = self.device.proxy();
         const graphics_queue = self.graphicsQueue();
         const frame = &self.frames[self.current_frame];
 
         const fences = [_]vk.Fence{frame.in_flight};
-        const wait_result = dev.waitForFences(fences[0..], .true, 1000000) catch |err| {
+        const wait_result = dev.waitForFences(fences[0..], .true, std.math.maxInt(u64)) catch |err| {
             std.log.err("Failed to wait for frame fence: {}", .{err});
             return error.FrameSyncFailed;
         };
@@ -419,7 +409,7 @@ pub const Renderer = struct {
     // Create new swapchain with old handle, if image format changes invalidate pipeline
     // TODO: I still need to find a way to not depend on the window object
     fn recreateSwapchain(self: *Renderer, window: *glfw.Window) !void {
-        const dev = self.device();
+        const dev = self.device.proxy();
 
         try dev.deviceWaitIdle();
 

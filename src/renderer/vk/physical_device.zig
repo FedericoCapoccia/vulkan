@@ -3,6 +3,8 @@ const std = @import("std");
 const vk = @import("vulkan");
 const profile = @import("profile.zig");
 
+const Instance = @import("instance.zig").Instance;
+
 pub const QueueFamilies = struct {
     graphics: u32,
     // compute: u32,
@@ -16,8 +18,7 @@ pub const PhysicalDevice = struct {
 
     pub const SelectInfo = struct {
         base: vk.BaseWrapper,
-        instance_api_version: u32,
-        instance: vk.InstanceProxy,
+        instance: Instance,
         surface: vk.SurfaceKHR,
         requirements: *const profile.EngineRequirements,
         allocator: std.mem.Allocator,
@@ -25,13 +26,16 @@ pub const PhysicalDevice = struct {
 
     pub const SelectError = error{
         VulkanError,
+        ProfileNotInitialized,
         OutOfMemory,
         NoPhysicalDevice,
         NoSuitablePhysicalDevice,
     };
 
     pub fn select(info: *const SelectInfo) SelectError!PhysicalDevice {
-        const devices = info.instance.enumeratePhysicalDevicesAlloc(info.allocator) catch |err| {
+        const instance = info.instance.proxy();
+
+        const devices = instance.enumeratePhysicalDevicesAlloc(info.allocator) catch |err| {
             std.log.err("Failed to enumerate available physical devices: {}", .{err});
             return switch (err) {
                 error.OutOfMemory => error.OutOfMemory,
@@ -46,13 +50,13 @@ pub const PhysicalDevice = struct {
         var selected_props: vk.PhysicalDeviceProperties = undefined;
         for (devices) |device| {
             var props = vk.PhysicalDeviceProperties2{ .properties = undefined };
-            info.instance.getPhysicalDeviceProperties2(device, &props);
+            instance.getPhysicalDeviceProperties2(device, &props);
 
             if (props.properties.api_version < vk.API_VERSION_1_3.toU32()) continue;
 
-            const queue_families = (try findQueueFamilies(info.instance, device, info.surface, info.allocator)) orelse continue;
+            const queue_families = (try findQueueFamilies(instance, device, info.surface, info.allocator)) orelse continue;
 
-            const pf = try profile.supportedProfile(info.base, info.instance_api_version, info.instance, device, info.requirements, info.allocator) orelse continue;
+            const pf = try profile.supportedProfile(info.instance, device, info.requirements, info.allocator) orelse continue;
 
             const candidate = PhysicalDevice{
                 .handle = device,

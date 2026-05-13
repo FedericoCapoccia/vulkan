@@ -8,22 +8,14 @@ pub const Instance = struct {
     api_version: u32,
     debug_messenger: ?vk.DebugUtilsMessengerEXT,
 
-    pub const InitInfo = struct {
+    pub const CreateInfo = struct {
         allocator: std.mem.Allocator,
         base: vk.BaseWrapper,
         extensions: []const [*:0]const u8,
         enable_messenger: bool,
     };
 
-    pub const InitError = error{
-        VulkanError,
-        OutOfMemory,
-        UnsupportedVulkanVersion,
-        UnsupportedExtension,
-    };
-
-    // TODO: make instance creation based on minimal profile: VP_LUNARG_minimum_requirements_1_3
-    pub fn init(info: *const InitInfo) InitError!Instance {
+    pub fn create(info: *const CreateInfo) !Instance {
         const instance_version = info.base.enumerateInstanceVersion() catch |err| {
             std.log.err("Failed to enumerate instance version: {}", .{err});
             return error.VulkanError;
@@ -49,7 +41,25 @@ pub const Instance = struct {
             return error.UnsupportedExtension;
         }
 
-        const messenger_cinfo = messengerCreateInfo();
+        const messenger_cinfo = blk: {
+            const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
+                .error_bit_ext = true,
+                .warning_bit_ext = true,
+            };
+
+            const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
+                .device_address_binding_bit_ext = false,
+                .general_bit_ext = true,
+                .performance_bit_ext = true,
+                .validation_bit_ext = true,
+            };
+
+            break :blk vk.DebugUtilsMessengerCreateInfoEXT{
+                .message_severity = severity,
+                .message_type = mtype,
+                .pfn_user_callback = debugCallback,
+            };
+        };
 
         const app_info = vk.ApplicationInfo{
             .p_application_name = "Vulkan",
@@ -83,7 +93,7 @@ pub const Instance = struct {
             .debug_messenger = null,
         };
         const instance_proxy = vk.InstanceProxy.init(self.handle, &self.wrapper);
-        errdefer self.deinit();
+        errdefer self.destroy();
 
         if (info.enable_messenger) {
             self.debug_messenger = instance_proxy.createDebugUtilsMessengerEXT(&messenger_cinfo, null) catch |err| blk: {
@@ -95,7 +105,7 @@ pub const Instance = struct {
         return self;
     }
 
-    pub fn deinit(self: *Instance) void {
+    pub fn destroy(self: *Instance) void {
         if (self.handle == .null_handle) return;
 
         const instance_proxy = self.proxy();
@@ -140,26 +150,6 @@ fn checkExtensions(available: []vk.ExtensionProperties, requested: []const [*:0]
     }
 
     return all_found;
-}
-
-fn messengerCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
-    const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
-        .error_bit_ext = true,
-        .warning_bit_ext = true,
-    };
-
-    const mtype = vk.DebugUtilsMessageTypeFlagsEXT{
-        .device_address_binding_bit_ext = false,
-        .general_bit_ext = true,
-        .performance_bit_ext = true,
-        .validation_bit_ext = true,
-    };
-
-    return vk.DebugUtilsMessengerCreateInfoEXT{
-        .message_severity = severity,
-        .message_type = mtype,
-        .pfn_user_callback = debugCallback,
-    };
 }
 
 fn debugCallback(

@@ -107,6 +107,13 @@ fn selectFormat(info: *const Swapchain.CreateInfo) !vk.SurfaceFormatKHR {
         return error.NoSurfaceFormatAvailable;
     }
 
+    if (formats.len == 1 and formats[0].format == .undefined) {
+        return .{
+            .format = .b8g8r8a8_srgb,
+            .color_space = .srgb_nonlinear_khr,
+        };
+    }
+
     for (formats) |format| {
         if (format.format == .b8g8r8a8_srgb and format.color_space == .srgb_nonlinear_khr) {
             return format;

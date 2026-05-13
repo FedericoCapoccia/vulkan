@@ -3,6 +3,17 @@ const std = @import("std");
 const vk = @import("vulkan");
 const vp = @import("vulkan-profiles");
 
+const Instance = @import("instance.zig").Instance;
+const PhysicalDevice = @import("physical_device.zig").PhysicalDevice;
+
+var vulkan_functions: ?vp.VpVulkanFunctions = null;
+
+// Extensions and features required but not included in VP_LUNARG_minimum_requirements_1_3
+pub const EngineRequirements = struct {
+    extra_device_extensions: []const EngineExtension,
+    extra_features: []const EngineFeature,
+};
+
 pub const EngineProfile = enum {
     minimal,
     roadmap2024,
@@ -67,23 +78,33 @@ pub const EngineExtension = enum {
     }
 };
 
-// Extensions and features required but not included in VP_LUNARG_minimum_requirements_1_3
-pub const EngineRequirements = struct {
-    extra_device_extensions: []const EngineExtension,
-    extra_features: []const EngineFeature,
-};
-
-const max_extra_device_extensions = @typeInfo(EngineExtension).@"enum".fields.len;
+pub fn init(base: vk.BaseWrapper, instance: vk.InstanceProxy) void {
+    const d = instance.wrapper.dispatch;
+    vulkan_functions = .{
+        .GetInstanceProcAddr = @ptrCast(base.dispatch.vkGetInstanceProcAddr),
+        .GetDeviceProcAddr = @ptrCast(d.vkGetDeviceProcAddr),
+        .EnumerateInstanceVersion = @ptrCast(base.dispatch.vkEnumerateInstanceVersion),
+        .EnumerateInstanceExtensionProperties = @ptrCast(base.dispatch.vkEnumerateInstanceExtensionProperties),
+        .EnumerateDeviceExtensionProperties = @ptrCast(d.vkEnumerateDeviceExtensionProperties),
+        .GetPhysicalDeviceFeatures2 = @ptrCast(d.vkGetPhysicalDeviceFeatures2),
+        .GetPhysicalDeviceProperties2 = @ptrCast(d.vkGetPhysicalDeviceProperties2),
+        .GetPhysicalDeviceFormatProperties2 = @ptrCast(d.vkGetPhysicalDeviceFormatProperties2),
+        .GetPhysicalDeviceQueueFamilyProperties2 = @ptrCast(d.vkGetPhysicalDeviceQueueFamilyProperties2),
+        .CreateInstance = @ptrCast(base.dispatch.vkCreateInstance),
+        .CreateDevice = @ptrCast(d.vkCreateDevice),
+    };
+}
 
 pub fn supportedProfile(
-    base: vk.BaseWrapper,
-    instance_api_version: u32,
-    instance: vk.InstanceProxy,
+    instance: Instance,
     pdev: vk.PhysicalDevice,
     requirements: *const EngineRequirements,
     allocator: std.mem.Allocator,
-) error{ OutOfMemory, VulkanError }!?EngineProfile {
-    const capabilities = createCapabilities(base, instance_api_version, instance) catch return error.VulkanError;
+) error{ OutOfMemory, VulkanError, ProfileNotInitialized }!?EngineProfile {
+    const capabilities = createCapabilities(instance.api_version) catch |err| switch (err) {
+        error.ProfileNotInitialized => return error.ProfileNotInitialized,
+        else => return error.VulkanError,
+    };
     defer vp.vpDestroyCapabilities(capabilities, null);
 
     const candidates = [_]EngineProfile{
@@ -105,14 +126,129 @@ pub fn supportedProfile(
         )) catch return error.VulkanError;
 
         if (supported == vp.VK_TRUE and
-            try hasExtraDeviceExtensions(instance, pdev, candidate, requirements.extra_device_extensions, allocator) and
-            hasExtraFeatures(instance, pdev, candidate, requirements.extra_features))
+            try hasExtraDeviceExtensions(instance.proxy(), pdev, candidate, requirements.extra_device_extensions, allocator) and
+            hasExtraFeatures(instance.proxy(), pdev, candidate, requirements.extra_features))
         {
             return candidate;
         }
     }
 
     return null;
+}
+
+pub fn createDevice(instance: Instance, physical_device: PhysicalDevice, requirements: *const EngineRequirements) !vk.Device {
+    const capabilities = try createCapabilities(instance.api_version);
+    defer vp.vpDestroyCapabilities(capabilities, null);
+
+    std.log.info("Creating logical device", .{});
+    std.log.info("\tEngine profile: {s}", .{@tagName(physical_device.profile)});
+
+    var vulkan_11_features = vp.VkPhysicalDeviceVulkan11Features{
+        .sType = vp.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+    };
+
+    var p_next: ?*anyopaque = null;
+    if (requiresManualFeature(physical_device.profile, requirements.extra_features, .shader_draw_parameters)) {
+        vulkan_11_features.shaderDrawParameters = vp.VK_TRUE;
+        p_next = &vulkan_11_features;
+        std.log.info("\t[EXTRA FEATURE] shader_draw_parameters", .{});
+    }
+
+    const max_ext = @typeInfo(EngineExtension).@"enum".fields.len;
+    var extension_storage: [max_ext][*:0]const u8 = undefined;
+    var extension_count: usize = 0;
+    for (requirements.extra_device_extensions) |extension| {
+        if (extension.providedBy(physical_device.profile)) continue;
+        extension_storage[extension_count] = extension.name();
+        extension_count += 1;
+        std.log.info("\t[EXTRA EXTENSION] {s}", .{std.mem.span(extension.name())});
+    }
+    const extensions = extension_storage[0..extension_count];
+
+    const queue_priority = [_]f32{1.0};
+    const queue_cinfo = [_]vp.VkDeviceQueueCreateInfo{.{
+        .sType = vp.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = physical_device.queue_families.graphics,
+        .queueCount = 1,
+        .pQueuePriorities = queue_priority[0..].ptr,
+    }};
+
+    const device_cinfo = vp.VkDeviceCreateInfo{
+        .sType = vp.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = p_next,
+        .queueCreateInfoCount = queue_cinfo.len,
+        .pQueueCreateInfos = queue_cinfo[0..].ptr,
+        .enabledExtensionCount = @intCast(extensions.len),
+        .ppEnabledExtensionNames = if (extensions.len == 0) null else @ptrCast(extensions.ptr),
+    };
+
+    var selected_profile = physical_device.profile.properties();
+    const profile_cinfo = vp.VpDeviceCreateInfo{
+        .pCreateInfo = &device_cinfo,
+        .enabledFullProfileCount = 1,
+        .pEnabledFullProfiles = &selected_profile,
+    };
+
+    var device: vp.VkDevice = null;
+    try check(vp.vpCreateDevice(
+        capabilities,
+        @ptrFromInt(@intFromEnum(physical_device.handle)),
+        &profile_cinfo,
+        null,
+        &device,
+    ));
+
+    return @enumFromInt(@intFromPtr(device));
+}
+
+fn createCapabilities(api_version: u32) !vp.VpCapabilities {
+    if (vulkan_functions) |*vf| {
+        const cinfo = vp.VpCapabilitiesCreateInfo{
+            .apiVersion = api_version,
+            .pVulkanFunctions = &vf.*,
+        };
+
+        var capabilities: vp.VpCapabilities = undefined;
+        try check(vp.vpCreateCapabilities(&cinfo, null, &capabilities));
+        return capabilities;
+    }
+    return error.ProfileNotInitialized;
+}
+
+fn requiresManualFeature(engine_profile: EngineProfile, extra_features: []const EngineFeature, feature: EngineFeature) bool {
+    if (feature.providedBy(engine_profile)) return false;
+
+    for (extra_features) |extra_feature| {
+        if (extra_feature == feature) return true;
+    }
+
+    return false;
+}
+
+fn hasExtraFeatures(
+    instance: vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    engine_profile: EngineProfile,
+    extra_features: []const EngineFeature,
+) bool {
+    var features_1_1 = vk.PhysicalDeviceVulkan11Features{};
+    var features = vk.PhysicalDeviceFeatures2{
+        .features = .{},
+        .p_next = &features_1_1,
+    };
+    instance.getPhysicalDeviceFeatures2(pdev, &features);
+
+    for (extra_features) |feature| {
+        if (feature.providedBy(engine_profile)) continue;
+
+        switch (feature) {
+            .shader_draw_parameters => {
+                if (features_1_1.shader_draw_parameters == .false) return false;
+            },
+        }
+    }
+
+    return true;
 }
 
 fn hasExtraDeviceExtensions(
@@ -148,138 +284,6 @@ fn hasExtraDeviceExtensions(
     }
 
     return true;
-}
-
-fn hasExtraFeatures(
-    instance: vk.InstanceProxy,
-    pdev: vk.PhysicalDevice,
-    engine_profile: EngineProfile,
-    extra_features: []const EngineFeature,
-) bool {
-    var features_1_1 = vk.PhysicalDeviceVulkan11Features{};
-    var features = vk.PhysicalDeviceFeatures2{
-        .features = .{},
-        .p_next = &features_1_1,
-    };
-    instance.getPhysicalDeviceFeatures2(pdev, &features);
-
-    for (extra_features) |feature| {
-        if (feature.providedBy(engine_profile)) continue;
-
-        switch (feature) {
-            .shader_draw_parameters => {
-                if (features_1_1.shader_draw_parameters == .false) return false;
-            },
-        }
-    }
-
-    return true;
-}
-
-pub fn createDevice(
-    base: vk.BaseWrapper,
-    instance_api_version: u32,
-    instance: vk.InstanceProxy,
-    pdev: vk.PhysicalDevice,
-    queue_family: u32,
-    engine_profile: EngineProfile,
-    requirements: *const EngineRequirements,
-) !vk.Device {
-    const capabilities = try createCapabilities(base, instance_api_version, instance);
-    defer vp.vpDestroyCapabilities(capabilities, null);
-
-    std.log.info("Creating logical device", .{});
-    std.log.info("\tEngine profile: {s}", .{@tagName(engine_profile)});
-
-    var vulkan_11_features = vp.VkPhysicalDeviceVulkan11Features{
-        .sType = vp.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-    };
-
-    var p_next: ?*anyopaque = null;
-    if (requiresManualFeature(engine_profile, requirements.extra_features, .shader_draw_parameters)) {
-        vulkan_11_features.shaderDrawParameters = vp.VK_TRUE;
-        p_next = &vulkan_11_features;
-        std.log.info("\t[EXTRA FEATURE] shader_draw_parameters", .{});
-    }
-
-    var extension_storage: [max_extra_device_extensions][*:0]const u8 = undefined;
-    var extension_count: usize = 0;
-    for (requirements.extra_device_extensions) |extension| {
-        if (extension.providedBy(engine_profile)) continue;
-        extension_storage[extension_count] = extension.name();
-        extension_count += 1;
-        std.log.info("\t[EXTRA EXTENSION] {s}", .{std.mem.span(extension.name())});
-    }
-    const extensions = extension_storage[0..extension_count];
-
-    const queue_priority = [_]f32{1.0};
-    const queue_cinfo = [_]vp.VkDeviceQueueCreateInfo{.{
-        .sType = vp.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = queue_family,
-        .queueCount = 1,
-        .pQueuePriorities = queue_priority[0..].ptr,
-    }};
-
-    const device_cinfo = vp.VkDeviceCreateInfo{
-        .sType = vp.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = p_next,
-        .queueCreateInfoCount = queue_cinfo.len,
-        .pQueueCreateInfos = queue_cinfo[0..].ptr,
-        .enabledExtensionCount = @intCast(extensions.len),
-        .ppEnabledExtensionNames = if (extensions.len == 0) null else @ptrCast(extensions.ptr),
-    };
-
-    var selected_profile = engine_profile.properties();
-    const profile_cinfo = vp.VpDeviceCreateInfo{
-        .pCreateInfo = &device_cinfo,
-        .enabledFullProfileCount = 1,
-        .pEnabledFullProfiles = &selected_profile,
-    };
-
-    var device: vp.VkDevice = null;
-    try check(vp.vpCreateDevice(
-        capabilities,
-        @ptrFromInt(@intFromEnum(pdev)),
-        &profile_cinfo,
-        null,
-        &device,
-    ));
-
-    return @enumFromInt(@intFromPtr(device));
-}
-
-fn createCapabilities(base: vk.BaseWrapper, instance_api_version: u32, instance: vk.InstanceProxy) !vp.VpCapabilities {
-    const vulkan_functions = vp.VpVulkanFunctions{
-        .GetInstanceProcAddr = @ptrCast(base.dispatch.vkGetInstanceProcAddr),
-        .GetDeviceProcAddr = @ptrCast(instance.wrapper.dispatch.vkGetDeviceProcAddr),
-        .EnumerateInstanceVersion = @ptrCast(base.dispatch.vkEnumerateInstanceVersion),
-        .EnumerateInstanceExtensionProperties = @ptrCast(base.dispatch.vkEnumerateInstanceExtensionProperties),
-        .EnumerateDeviceExtensionProperties = @ptrCast(instance.wrapper.dispatch.vkEnumerateDeviceExtensionProperties),
-        .GetPhysicalDeviceFeatures2 = @ptrCast(instance.wrapper.dispatch.vkGetPhysicalDeviceFeatures2),
-        .GetPhysicalDeviceProperties2 = @ptrCast(instance.wrapper.dispatch.vkGetPhysicalDeviceProperties2),
-        .GetPhysicalDeviceFormatProperties2 = @ptrCast(instance.wrapper.dispatch.vkGetPhysicalDeviceFormatProperties2),
-        .GetPhysicalDeviceQueueFamilyProperties2 = @ptrCast(instance.wrapper.dispatch.vkGetPhysicalDeviceQueueFamilyProperties2),
-        .CreateInstance = @ptrCast(base.dispatch.vkCreateInstance),
-        .CreateDevice = @ptrCast(instance.wrapper.dispatch.vkCreateDevice),
-    };
-    const cap_cinfo = vp.VpCapabilitiesCreateInfo{
-        .apiVersion = instance_api_version,
-        .pVulkanFunctions = &vulkan_functions,
-    };
-
-    var capabilities: vp.VpCapabilities = undefined;
-    try check(vp.vpCreateCapabilities(&cap_cinfo, null, &capabilities));
-    return capabilities;
-}
-
-fn requiresManualFeature(engine_profile: EngineProfile, extra_features: []const EngineFeature, feature: EngineFeature) bool {
-    if (feature.providedBy(engine_profile)) return false;
-
-    for (extra_features) |extra_feature| {
-        if (extra_feature == feature) return true;
-    }
-
-    return false;
 }
 
 fn check(result: vp.VkResult) !void {
